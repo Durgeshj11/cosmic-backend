@@ -5,9 +5,10 @@ from typing import List, Optional
 import os
 
 # --- DATABASE SETUP ---
-# Uses the Environment Variable you just saved on Render
+# Uses the Render Environment Variable we set up
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://cosmic_db_8iio_user:DN2KPuhDRzOUZqQlMqZSt49mJbUzoJL9@dpg-d51tjdjuibrs739i2ceg-a/cosmic_db_8iio")
 
+# SQLAlchemy requires 'postgresql://' instead of 'postgres://'
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -21,8 +22,8 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     email: Optional[str] = None
-    birthday: Optional[str] = None  # New field for calculation
-    life_path: Optional[int] = None # Calculated field
+    birthday: Optional[str] = None
+    life_path: Optional[int] = None
 
 # --- NUMEROLOGY LOGIC ---
 def calculate_life_path(dob: str):
@@ -30,12 +31,12 @@ def calculate_life_path(dob: str):
     # Example: "1995-05-20" -> 1+9+9+5+0+5+2+0 = 31 -> 3+1 = 4
     digits = [int(d) for d in dob if d.isdigit()]
     total = sum(digits)
-    while total > 9 and total not in [11, 22, 33]:
+    while total > 9 and total not in [11, 22, 33]: # Keep Master Numbers
         total = sum(int(d) for d in str(total))
     return total
 
 # --- APP SETUP ---
-app = FastAPI()
+app = FastAPI(title="Cosmic Connections API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -50,23 +51,29 @@ def on_startup():
     create_db_and_tables()
 
 # --- ROUTES ---
-@app.get("/")
-def read_root():
-    return {"message": "Cosmic Backend is Live on PostgreSQL!"}
+
+@app.get("/users", response_model=List[User])
+def read_users():
+    with Session(engine) as session:
+        return session.exec(select(User)).all()
 
 @app.post("/users", response_model=User)
 def create_user(user: User):
-    # Calculate Life Path before saving
+    # Calculate Life Path before saving to PostgreSQL
     if user.birthday:
         user.life_path = calculate_life_path(user.birthday)
-    
     with Session(engine) as session:
         session.add(user)
         session.commit()
         session.refresh(user)
         return user
 
-@app.get("/users", response_model=List[User])
-def read_users():
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int):
     with Session(engine) as session:
-        return session.exec(select(User)).all()
+        user = session.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        session.delete(user)
+        session.commit()
+        return {"ok": True}
