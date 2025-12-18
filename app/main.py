@@ -13,11 +13,11 @@ engine = create_engine(sqlite_url, echo=True, connect_args=connect_args)
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
 
-# --- MODELS (Data Structure) ---
+# --- MODELS ---
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    # UPDATE: Made email optional so it won't crash if missing
+    # 🟢 CHANGE: The '= None' makes this optional so the DB won't crash
     email: Optional[str] = None 
 
 # --- APP & CORS SETUP ---
@@ -25,9 +25,9 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],    # Allows Flutter Web to connect
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],    # Allows POST, GET, DELETE, etc.
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -36,7 +36,6 @@ def on_startup():
     create_db_and_tables()
 
 # --- ROUTES ---
-
 @app.get("/")
 def read_root():
     return {"message": "Server is up and running!"}
