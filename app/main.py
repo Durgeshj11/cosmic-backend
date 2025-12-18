@@ -1,79 +1,73 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import SQLModel, Field, Session, create_engine, select
-from typing import List, Optional
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy import create_engine, Column, Integer, String, Date
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+from pget import get_env_variable # Ensure your DB_URL is handled
 import os
 
-# --- DATABASE SETUP ---
-# Uses the Render Environment Variable we set up
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://cosmic_db_8iio_user:DN2KPuhDRzOUZqQlMqZSt49mJbUzoJL9@dpg-d51tjdjuibrs739i2ceg-a/cosmic_db_8iio")
-
-# SQLAlchemy requires 'postgresql://' instead of 'postgres://'
-if DATABASE_URL.startswith("postgres://"):
+# Database Setup
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
+# Updated User Model for Astrology & Palmistry
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    email = Column(String)
+    birthday = Column(Date)
+    birth_time = Column(String)  # New: e.g., "14:30"
+    birth_place = Column(String) # New: e.g., "Mumbai, India"
+    palm_image_url = Column(String) # New: Base64 or URL link
+    life_path = Column(Integer)
 
-# --- MODELS ---
-class User(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str
-    email: Optional[str] = None
-    birthday: Optional[str] = None
-    life_path: Optional[int] = None
+Base.metadata.create_all(bind=engine)
 
-# --- NUMEROLOGY LOGIC ---
-def calculate_life_path(dob: str):
-    if not dob: return None
-    # Example: "1995-05-20" -> 1+9+9+5+0+5+2+0 = 31 -> 3+1 = 4
-    digits = [int(d) for d in dob if d.isdigit()]
-    total = sum(digits)
-    while total > 9 and total not in [11, 22, 33]: # Keep Master Numbers
-        total = sum(int(d) for d in str(total))
-    return total
+app = FastAPI()
 
-# --- APP SETUP ---
-app = FastAPI(title="Cosmic Connections API")
+# CRUD Logic
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.get("/users")
+def read_users(db: Session = Depends(get_db)):
+    return db.query(User).all()
 
-@app.on_event("startup")
-def on_startup():
-    create_db_and_tables()
-
-# --- ROUTES ---
-
-@app.get("/users", response_model=List[User])
-def read_users():
-    with Session(engine) as session:
-        return session.exec(select(User)).all()
-
-@app.post("/users", response_model=User)
-def create_user(user: User):
-    # Calculate Life Path before saving to PostgreSQL
-    if user.birthday:
-        user.life_path = calculate_life_path(user.birthday)
-    with Session(engine) as session:
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-        return user
+@app.post("/users")
+def create_user(user_data: dict, db: Session = Depends(get_db)):
+    # Calculate Life Path locally before saving
+    dob_digits = "".join(filter(str.isdigit, user_data['birthday']))
+    lp = sum(int(d) for d in dob_digits)
+    while lp > 9 and lp not in [11, 22, 33]:
+        lp = sum(int(d) for d in str(lp))
+        
+    new_user = User(
+        name=user_data['name'],
+        email=user_data.get('email'),
+        birthday=user_data['birthday'],
+        birth_time=user_data.get('birth_time'),
+        birth_place=user_data.get('birth_place'),
+        palm_image_url=user_data.get('palm_image_url'),
+        life_path=lp
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
 
 @app.delete("/users/{user_id}")
-def delete_user(user_id: int):
-    with Session(engine) as session:
-        user = session.get(User, user_id)
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        session.delete(user)
-        session.commit()
-        return {"ok": True}
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if user:
+        db.delete(user)
+        db.commit()
+    return {"status": "success"}
