@@ -53,3 +53,4 @@ def read_users():
     with Session(engine) as session:
         users = session.exec(select(User)).all()
         return users
+# Deployment update: 1
