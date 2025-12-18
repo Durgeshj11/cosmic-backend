@@ -5,13 +5,13 @@ from typing import List, Optional
 import os
 
 # --- DATABASE SETUP ---
-# We use your Internal URL here. 
-# Added a .replace() fix to ensure compatibility with SQLAlchemy.
-raw_url = "postgresql://cosmic_db_8iio_user:DN2KPuhDRzOUZqQlMqZSt49mJbUzoJL9@dpg-d51tjdjuibrs739i2ceg-a/cosmic_db_8iio"
-if raw_url.startswith("postgres://"):
-    raw_url = raw_url.replace("postgres://", "postgresql://", 1)
+# Uses the Environment Variable you just saved on Render
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://cosmic_db_8iio_user:DN2KPuhDRzOUZqQlMqZSt49mJbUzoJL9@dpg-d51tjdjuibrs739i2ceg-a/cosmic_db_8iio")
 
-engine = create_engine(raw_url, echo=True)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(DATABASE_URL, echo=True)
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
@@ -21,10 +21,21 @@ class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     email: Optional[str] = None
-    life_path: Optional[int] = None
+    birthday: Optional[str] = None  # New field for calculation
+    life_path: Optional[int] = None # Calculated field
+
+# --- NUMEROLOGY LOGIC ---
+def calculate_life_path(dob: str):
+    if not dob: return None
+    # Example: "1995-05-20" -> 1+9+9+5+0+5+2+0 = 31 -> 3+1 = 4
+    digits = [int(d) for d in dob if d.isdigit()]
+    total = sum(digits)
+    while total > 9 and total not in [11, 22, 33]:
+        total = sum(int(d) for d in str(total))
+    return total
 
 # --- APP SETUP ---
-app = FastAPI(title="Cosmic Connections API")
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +56,10 @@ def read_root():
 
 @app.post("/users", response_model=User)
 def create_user(user: User):
+    # Calculate Life Path before saving
+    if user.birthday:
+        user.life_path = calculate_life_path(user.birthday)
+    
     with Session(engine) as session:
         session.add(user)
         session.commit()
