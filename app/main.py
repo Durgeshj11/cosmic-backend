@@ -1,13 +1,27 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session, select
-from app.db.session import get_session
+from sqlmodel import Session, select, SQLModel  # <-- Added SQLModel
+from app.db.session import get_session, engine  # <-- Added engine
 from app.db.models import User
 from typing import List
 from datetime import date
 import asyncio
 
-app = FastAPI(title="Cosmic Align API")
+# --- FIX: DATABASE CREATION ---
+# This tells the server to build the tables when it turns on
+def create_db_and_tables():
+    SQLModel.metadata.create_all(engine)
+
+# Use lifespan to run startup tasks (Modern FastAPI way)
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_db_and_tables()
+    yield
+
+app = FastAPI(title="Cosmic Align API", lifespan=lifespan)
+# ------------------------------
 
 app.add_middleware(
     CORSMiddleware,
@@ -101,7 +115,6 @@ async def read_palm(user_id: int, session: Session = Depends(get_session)):
         "reading": meaning
     }
 
-# --- NEW: DELETE USER ---
 @app.delete("/users/{user_id}")
 def delete_user(user_id: int, session: Session = Depends(get_session)):
     user = session.get(User, user_id)
