@@ -20,8 +20,8 @@ app = FastAPI(title="Cosmic Align API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"],     # Allow ALL origins
+    allow_credentials=False, # <--- CHANGE THIS TO FALSE (Fixes the bug)
     allow_methods=["*"],
     allow_headers=["*"],
 )
