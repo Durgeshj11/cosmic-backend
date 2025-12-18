@@ -4,8 +4,6 @@ from sqlmodel import SQLModel, Field, Session, create_engine, select
 from typing import List, Optional
 
 # --- DATABASE SETUP ---
-# Note: SQLite on Render clears every time you deploy.
-# For permanent data later, you will need PostgreSQL.
 sqlite_file_name = "database.db"
 sqlite_url = f"sqlite:///{sqlite_file_name}"
 
@@ -16,16 +14,15 @@ def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
 
 # --- MODELS (Data Structure) ---
-# If your app has different fields (like 'age' or 'password'), add them here.
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    email: str
+    # UPDATE: Made email optional so it won't crash if missing
+    email: Optional[str] = None 
 
 # --- APP & CORS SETUP ---
 app = FastAPI()
 
-# 🟢 THIS IS THE FIX FOR YOUR ERROR 🟢
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],    # Allows Flutter Web to connect
