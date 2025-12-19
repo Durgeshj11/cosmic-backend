@@ -1,11 +1,13 @@
 from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy import create_engine, Column, Integer, String, Date
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
-from pget import get_env_variable # Ensure your DB_URL is handled
+from pydantic import BaseModel
+from typing import List, Optional
 import os
 
-# Database Setup
+# --- DATABASE CONNECTION ---
+# Render provides the DATABASE_URL environment variable
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -14,23 +16,80 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Updated User Model for Astrology & Palmistry
+# --- AUTOMATIC DATABASE MIGRATION ---
+# This adds your new columns automatically without manual SQL terminal commands
+def migrate_db(engine):
+    with engine.connect() as conn:
+        # Add columns for hidden physical traits
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_traits TEXT"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS body_type TEXT"))
+        # Add columns for consent and security
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS nsfw_enabled TEXT DEFAULT 'false'"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_password TEXT"))
+        # Add columns for life path and lifestyle
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS life_path INTEGER"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS diet TEXT"))
+        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS pets TEXT"))
+        conn.commit()
+
+# Trigger migration on server startup
+migrate_db(engine)
+
+# --- DATABASE MODELS ---
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
-    email = Column(String)
-    birthday = Column(Date)
-    birth_time = Column(String)  # New: e.g., "14:30"
-    birth_place = Column(String) # New: e.g., "Mumbai, India"
-    palm_image_url = Column(String) # New: Base64 or URL link
+    email = Column(String, unique=True, index=True)
     life_path = Column(Integer)
+    religion = Column(String, nullable=True)
+    caste = Column(String, nullable=True)
+    diet = Column(String, nullable=True)
+    pets = Column(String, nullable=True)
+    income = Column(String, nullable=True)
+    job_status = Column(String, nullable=True)
+    education = Column(String, nullable=True)
+    politics = Column(String, nullable=True)
+    phone_password = Column(String, nullable=True)
+    nsfw_enabled = Column(String, default="false") #
+    sensitive_traits = Column(String, nullable=True) # Hidden sizes
+    body_type = Column(String, nullable=True) # Physical build
+    palm_image_url = Column(String, nullable=True)
 
+# Create tables if they don't exist
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+# --- PYDANTIC SCHEMAS (DATA VALIDATION) ---
+class UserBase(BaseModel):
+    name: str
+    email: str
+    life_path: int
+    religion: Optional[str] = None
+    caste: Optional[str] = None
+    diet: Optional[str] = None
+    pets: Optional[str] = None
+    income: Optional[str] = None
+    job_status: Optional[str] = None
+    education: Optional[str] = None
+    politics: Optional[str] = None
+    phone_password: Optional[str] = None
+    nsfw_enabled: Optional[str] = "false" #
+    sensitive_traits: Optional[str] = None #
+    body_type: Optional[str] = None #
+    palm_image_url: Optional[str] = None
 
-# CRUD Logic
+class UserCreate(UserBase):
+    pass
+
+class UserResponse(UserBase):
+    id: int
+    class Config:
+        from_attributes = True
+
+# --- API ENDPOINTS ---
+app = FastAPI(title="Cosmic Match Backend")
+
+# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -38,36 +97,32 @@ def get_db():
     finally:
         db.close()
 
-@app.get("/users")
-def read_users(db: Session = Depends(get_db)):
-    return db.query(User).all()
+@app.post("/users", response_model=UserResponse)
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    db_user = User(**user.dict())
+    db.add(db_user)
+    try:
+        db.commit()
+        db.refresh(db_user)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return db_user
 
-@app.post("/users")
-def create_user(user_data: dict, db: Session = Depends(get_db)):
-    # Calculate Life Path locally before saving
-    dob_digits = "".join(filter(str.isdigit, user_data['birthday']))
-    lp = sum(int(d) for d in dob_digits)
-    while lp > 9 and lp not in [11, 22, 33]:
-        lp = sum(int(d) for d in str(lp))
-        
-    new_user = User(
-        name=user_data['name'],
-        email=user_data.get('email'),
-        birthday=user_data['birthday'],
-        birth_time=user_data.get('birth_time'),
-        birth_place=user_data.get('birth_place'),
-        palm_image_url=user_data.get('palm_image_url'),
-        life_path=lp
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    return new_user
+@app.get("/users", response_model=List[UserResponse])
+def get_users(db: Session = Depends(get_db)):
+    return db.query(User).all()
 
 @app.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
-    if user:
-        db.delete(user)
-        db.commit()
-    return {"status": "success"}
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    db.delete(user)
+    db.commit()
+    return {"message": "User deleted successfully"}
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
