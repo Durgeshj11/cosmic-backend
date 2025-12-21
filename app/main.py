@@ -1,14 +1,16 @@
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # Required for Web Testing
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
 from typing import List, Optional
 import os
+import re
 
-# --- DATABASE CONNECTION ---
-# Render provides the DATABASE_URL environment variable
+# --- DATABASE CONFIGURATION ---
 DATABASE_URL = os.getenv("DATABASE_URL")
+# Fix for Render/PostgreSQL connection string compatibility
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
@@ -16,113 +18,88 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- AUTOMATIC DATABASE MIGRATION ---
-# This adds your new columns automatically without manual SQL terminal commands
-def migrate_db(engine):
-    with engine.connect() as conn:
-        # Add columns for hidden physical traits
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS sensitive_traits TEXT"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS body_type TEXT"))
-        # Add columns for consent and security
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS nsfw_enabled TEXT DEFAULT 'false'"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_password TEXT"))
-        # Add columns for life path and lifestyle
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS life_path INTEGER"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS diet TEXT"))
-        conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS pets TEXT"))
-        conn.commit()
-
-# Trigger migration on server startup
-migrate_db(engine)
-
-# --- DATABASE MODELS ---
+# --- DATABASE MODEL ---
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
     email = Column(String, unique=True, index=True)
+    birthday = Column(String)  # Format: YYYY-MM-DD
+    birth_time = Column(String, nullable=True)
+    birth_place = Column(String, nullable=True)
     life_path = Column(Integer)
+    # Profile & Lifestyle
     religion = Column(String, nullable=True)
     caste = Column(String, nullable=True)
+    income = Column(String, nullable=True)
     diet = Column(String, nullable=True)
     pets = Column(String, nullable=True)
-    income = Column(String, nullable=True)
-    job_status = Column(String, nullable=True)
-    education = Column(String, nullable=True)
-    politics = Column(String, nullable=True)
+    # Hidden Features & Security
+    sensitive_traits = Column(String, nullable=True) # Dick/Boobs/Butt size
+    body_type = Column(String, nullable=True)
     phone_password = Column(String, nullable=True)
-    nsfw_enabled = Column(String, default="false") #
-    sensitive_traits = Column(String, nullable=True) # Hidden sizes
-    body_type = Column(String, nullable=True) # Physical build
-    palm_image_url = Column(String, nullable=True)
+    nsfw_enabled = Column(Boolean, default=False)
+    is_banned = Column(Boolean, default=False)
 
-# Create tables if they don't exist
+# Automatic Database Migration
 Base.metadata.create_all(bind=engine)
 
-# --- PYDANTIC SCHEMAS (DATA VALIDATION) ---
-class UserBase(BaseModel):
-    name: str
-    email: str
-    life_path: int
-    religion: Optional[str] = None
-    caste: Optional[str] = None
-    diet: Optional[str] = None
-    pets: Optional[str] = None
-    income: Optional[str] = None
-    job_status: Optional[str] = None
-    education: Optional[str] = None
-    politics: Optional[str] = None
-    phone_password: Optional[str] = None
-    nsfw_enabled: Optional[str] = "false" #
-    sensitive_traits: Optional[str] = None #
-    body_type: Optional[str] = None #
-    palm_image_url: Optional[str] = None
+# --- FASTAPI APP SETUP ---
+app = FastAPI(title="Cosmic Match Pro Backend")
 
-class UserCreate(UserBase):
-    pass
+# Enable CORS for Web Frontend Access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-class UserResponse(UserBase):
-    id: int
-    class Config:
-        from_attributes = True
+# --- SECURITY LOGIC: CONTACT FILTER ---
+def has_contact_info(text: str) -> bool:
+    """Detects phone numbers and email addresses to prevent sharing"""
+    phone_pattern = r'\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b'
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    return bool(re.search(phone_pattern, text)) or bool(re.search(email_pattern, text))
+
+# --- LOGIC: LIFE PATH CALCULATION ---
+def calculate_life_path(dob_str: str) -> int:
+    """Calculates Life Path Number from DOB string (YYYY-MM-DD)"""
+    digits = [int(d) for d in dob_str if d.isdigit()]
+    total = sum(digits)
+    while total > 9 and total not in [11, 22, 33]:
+        total = sum(int(d) for d in str(total))
+    return total
 
 # --- API ENDPOINTS ---
-app = FastAPI(title="Cosmic Match Backend")
-
-# Dependency to get DB session
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-@app.post("/users", response_model=UserResponse)
-def create_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = User(**user.dict())
+@app.post("/signup")
+def signup(user_data: dict, db: Session = Depends(SessionLocal)):
+    # Validate contact info in name/email fields
+    if has_contact_info(user_data.get("name", "")) or has_contact_info(user_data.get("email", "")):
+        raise HTTPException(status_code=403, detail="BANNED: Contact info in profile is forbidden.")
+    
+    # Calculate and assign Life Path
+    lp = calculate_life_path(user_data.get("birthday", "2000-01-01"))
+    
+    db_user = User(**user_data, life_path=lp)
     db.add(db_user)
-    try:
-        db.commit()
-        db.refresh(db_user)
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
-    return db_user
-
-@app.get("/users", response_model=List[UserResponse])
-def get_users(db: Session = Depends(get_db)):
-    return db.query(User).all()
-
-@app.delete("/users/{user_id}")
-def delete_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    db.delete(user)
     db.commit()
-    return {"message": "User deleted successfully"}
+    db.refresh(db_user)
+    return {"status": "success", "life_path": lp, "user_id": db_user.id}
 
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+@app.get("/users")
+def get_users(db: Session = Depends(SessionLocal)):
+    """Fetch all non-banned souls for swiping"""
+    return db.query(User).filter(User.is_banned == False).all()
+
+@app.post("/chat/send")
+def send_message(user_id: int, message: str, db: Session = Depends(SessionLocal)):
+    """Filters chat and bans users attempting to share contact info"""
+    if has_contact_info(message):
+        user = db.query(User).filter(User.id == user_id).first()
+        if user:
+            user.is_banned = True
+            db.commit()
+        raise HTTPException(status_code=403, detail="BANNED: Contact information sharing detected.")
+    return {"status": "message_sent"}
