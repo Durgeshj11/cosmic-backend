@@ -1,13 +1,19 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# 1. YOU MUST DEFINE THE APP FIRST
+app = FastAPI()
+
+# 2. THEN ADD THE MIDDLEWARE
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # This allows localhost and Render to connect
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ... rest of your routes like @app.post("/request-otp")
 from sqlmodel import Session, select, SQLModel, Field, create_engine
 from typing import Optional, List
 from datetime import date
