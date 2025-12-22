@@ -1,105 +1,156 @@
-from fastapi import FastAPI, Depends, HTTPException
-from fastapi.middleware.cors import CORSMiddleware  # Required for Web Testing
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from pydantic import BaseModel
-from typing import List, Optional
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from sqlmodel import Session, select, SQLModel, Field, create_engine
+from typing import Optional, List
+from datetime import date
 import os
+import random
 import re
 
-# --- DATABASE CONFIGURATION ---
-DATABASE_URL = os.getenv("DATABASE_URL")
-# Fix for Render/PostgreSQL connection string compatibility
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+# --- DATABASE SETUP ---
+# PostgreSQL for Render Singapore Deployment
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///database.db")
+if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
 
-# --- DATABASE MODEL ---
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String)
-    email = Column(String, unique=True, index=True)
-    birthday = Column(String)  # Format: YYYY-MM-DD
-    birth_time = Column(String, nullable=True)
-    birth_place = Column(String, nullable=True)
-    life_path = Column(Integer)
-    # Profile & Lifestyle
-    religion = Column(String, nullable=True)
-    caste = Column(String, nullable=True)
-    income = Column(String, nullable=True)
-    diet = Column(String, nullable=True)
-    pets = Column(String, nullable=True)
-    # Hidden Features & Security
-    sensitive_traits = Column(String, nullable=True) # Dick/Boobs/Butt size
-    body_type = Column(String, nullable=True)
-    phone_password = Column(String, nullable=True)
-    nsfw_enabled = Column(Boolean, default=False)
-    is_banned = Column(Boolean, default=False)
+def create_db_and_tables():
+    SQLModel.metadata.create_all(engine)
 
-# Automatic Database Migration
-Base.metadata.create_all(bind=engine)
+app = FastAPI(title="Cosmic Match Pro API")
 
-# --- FASTAPI APP SETUP ---
-app = FastAPI(title="Cosmic Match Pro Backend")
-
-# Enable CORS for Web Frontend Access
+# Web Access: CORS Middleware for Flutter Web/Mobile compatibility
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- SECURITY LOGIC: CONTACT FILTER ---
-def has_contact_info(text: str) -> bool:
-    """Detects phone numbers and email addresses to prevent sharing"""
-    phone_pattern = r'\b(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}\b'
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    return bool(re.search(phone_pattern, text)) or bool(re.search(email_pattern, text))
+# --- DATABASE MODELS ---
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str
+    email: str
+    mobile: str
+    birthday: date  # YYYY-MM-DD
+    birth_time: str
+    birth_place: str
+    # Logic Fields
+    life_path: Optional[int] = None
+    sun_sign: Optional[str] = None
+    palm_line: str = "Heart" # Heart, Head, or Life
+    otp_code: str = "0000"
+    is_verified: bool = Field(default=False)
+    is_banned: bool = Field(default=False)
+    # Security/Consent fields
+    phone_password: Optional[str] = None
+    consent_given: bool = Field(default=False)
 
-# --- LOGIC: LIFE PATH CALCULATION ---
-def calculate_life_path(dob_str: str) -> int:
-    """Calculates Life Path Number from DOB string (YYYY-MM-DD)"""
-    digits = [int(d) for d in dob_str if d.isdigit()]
-    total = sum(digits)
-    while total > 9 and total not in [11, 22, 33]:
-        total = sum(int(d) for d in str(total))
-    return total
+@app.on_event("startup")
+def on_startup():
+    create_db_and_tables()
+
+# --- UTILITY: NUMEROLOGY & ASTROLOGY ---
+def calculate_life_path(dob: date) -> int:
+    digits = f"{dob.year}{dob.month:02d}{dob.day:02d}"
+    lp = sum(int(d) for d in digits)
+    while lp > 9 and lp not in [11, 22, 33]:
+        lp = sum(int(d) for d in str(lp))
+    return lp
+
+def get_zodiac_sign(dob: date) -> str:
+    m, d = dob.month, dob.day
+    if (m == 3 and d >= 21) or (m == 4 and d <= 19): return "Aries"
+    if (m == 4 and d >= 20) or (m == 5 and d <= 20): return "Taurus"
+    if (m == 5 and d >= 21) or (m == 6 and d <= 20): return "Gemini"
+    if (m == 6 and d >= 21) or (m == 7 and d <= 22): return "Cancer"
+    if (m == 7 and d >= 23) or (m == 8 and d <= 22): return "Leo"
+    if (m == 8 and d >= 23) or (m == 9 and d <= 22): return "Virgo"
+    if (m == 9 and d >= 23) or (m == 10 and d <= 22): return "Libra"
+    if (m == 10 and d >= 23) or (m == 11 and d <= 21): return "Scorpio"
+    if (m == 11 and d >= 22) or (m == 12 and d <= 21): return "Sagittarius"
+    if (m == 12 and d >= 22) or (m == 1 and d <= 19): return "Capricorn"
+    if (m == 1 and d >= 20) or (m == 2 and d <= 18): return "Aquarius"
+    return "Pisces"
+
+# --- SAFETY FILTER: AUTO-BAN LOGIC ---
+def safety_filter(text: str) -> bool:
+    # Pattern for emails or 10-digit mobile numbers
+    if re.search(r'[\w\.-]+@[\w\.-]+', text) or re.search(r'\d{10}', text):
+        return True # Trigger ban
+    return False
 
 # --- API ENDPOINTS ---
-@app.post("/signup")
-def signup(user_data: dict, db: Session = Depends(SessionLocal)):
-    # Validate contact info in name/email fields
-    if has_contact_info(user_data.get("name", "")) or has_contact_info(user_data.get("email", "")):
-        raise HTTPException(status_code=403, detail="BANNED: Contact info in profile is forbidden.")
+
+# 1. Stage 1: Request OTP
+@app.post("/request-otp")
+def request_otp(contact: str):
+    otp = str(random.randint(1000, 9999))
+    # Check Render Dashboard Logs to see this code for simulation
+    print(f"--- [SECURITY] OTP for {contact}: {otp} ---")
+    return {"status": "OTP_SENT", "message": "Verification code generated in logs."}
+
+# 2. Stage 2: Final Signup & Profile Initialization
+@app.post("/signup", response_model=User)
+def signup(user: User, db: Session = Depends(lambda: Session(engine))):
+    # Auto-Ban Check (Safety Filter)
+    if safety_filter(user.name) or safety_filter(user.birth_place):
+        user.is_banned = True
+        
+    # Automated Calculations
+    user.life_path = calculate_life_path(user.birthday)
+    user.sun_sign = get_zodiac_sign(user.birthday)
     
-    # Calculate and assign Life Path
-    lp = calculate_life_path(user_data.get("birthday", "2000-01-01"))
-    
-    db_user = User(**user_data, life_path=lp)
-    db.add(db_user)
+    db.add(user)
     db.commit()
-    db.refresh(db_user)
-    return {"status": "success", "life_path": lp, "user_id": db_user.id}
+    db.refresh(user)
+    return user
 
-@app.get("/users")
-def get_users(db: Session = Depends(SessionLocal)):
-    """Fetch all non-banned souls for swiping"""
-    return db.query(User).filter(User.is_banned == False).all()
+# 3. Marriage Compatibility Logic (Soulmate Groups)
+@app.get("/compatibility")
+def check_compatibility(lp1: int, lp2: int):
+    # Soulmate Groups: Group A(1,5,7), Group B(2,4,8), Group C(3,6,9)
+    groups = [{1, 5, 7}, {2, 4, 8}, {3, 6, 9}]
+    
+    for group in groups:
+        if lp1 in group and lp2 in group:
+            return {
+                "status": "💍 SOULMATE MATCH",
+                "score": 95,
+                "label": "Green Flag ✅",
+                "reason": "Perfect alignment within the same Soulmate Cluster."
+            }
+    
+    # Stability Indexing: LP 5 is a Red Flag for stability
+    if lp1 == 5 or lp2 == 5:
+        return {
+            "status": "✨ KARMIC GROWTH",
+            "score": 45,
+            "label": "Red Flag 🚩",
+            "reason": "High friction; lessons in stability required."
+        }
 
-@app.post("/chat/send")
-def send_message(user_id: int, message: str, db: Session = Depends(SessionLocal)):
-    """Filters chat and bans users attempting to share contact info"""
-    if has_contact_info(message):
-        user = db.query(User).filter(User.id == user_id).first()
-        if user:
-            user.is_banned = True
-            db.commit()
-        raise HTTPException(status_code=403, detail="BANNED: Contact information sharing detected.")
-    return {"status": "message_sent"}
+    return {
+        "status": "✨ STABLE MATCH",
+        "score": 75,
+        "label": "Orange Flag ⚠️",
+        "reason": "Secondary compatibility cluster."
+    }
+
+# 4. Mutual-Consent Reveal Logic
+@app.post("/provide-consent/{user_id}")
+def provide_consent(user_id: int, db: Session = Depends(lambda: Session(engine))):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.consent_given = True
+    db.commit()
+    return {"status": "CONSENT_RECORDED"}
+
+@app.get("/users", response_model=List[User])
+def get_matches(db: Session = Depends(lambda: Session(engine))):
+    # Filter out banned users from the swipe deck
+    return db.exec(select(User).where(User.is_banned == False)).all()
