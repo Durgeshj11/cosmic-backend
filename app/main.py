@@ -1,5 +1,13 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # This allows localhost and Render to connect
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 from sqlmodel import Session, select, SQLModel, Field, create_engine
 from typing import Optional, List
 from datetime import date
