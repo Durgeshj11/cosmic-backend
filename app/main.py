@@ -1,16 +1,20 @@
-from fastapi import FastAPI, Depends, HTTPException
+import google.generativeai as genai
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select, SQLModel, Field, create_engine
 from typing import Optional, List
 from datetime import date
-import os
-import random
-import re
+import os, random, re, io
+from PIL import Image
 
-# --- 1. APP INITIALIZATION (CRITICAL ORDER) ---
-app = FastAPI(title="Cosmic Match Pro API")
+# --- 1. APP & AI INITIALIZATION ---
+app = FastAPI(title="Cosmic Match Pro AI API")
 
-# Web Access: CORS Middleware for Flutter Web/Mobile compatibility
+# SECURITY: Set GEMINI_API_KEY in Render Environment Variables
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
+ai_model = genai.GenerativeModel('gemini-1.5-flash')
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,7 +24,6 @@ app.add_middleware(
 )
 
 # --- 2. DATABASE SETUP ---
-# PostgreSQL for Render Singapore Deployment
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///database.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -40,21 +43,18 @@ class User(SQLModel, table=True):
     name: str
     email: str
     mobile: str
-    birthday: date  # YYYY-MM-DD
+    birthday: date 
     birth_time: str
     birth_place: str
-    # Logic Fields
     life_path: Optional[int] = None
-    sun_sign: Optional[str] = None
-    palm_line: str = "Heart" # Heart, Head, or Life
-    otp_code: str = "0000"
     is_verified: bool = Field(default=False)
-    is_banned: bool = Field(default=False)
-    # Security/Consent fields
-    phone_password: Optional[str] = None
     consent_given: bool = Field(default=False)
 
 # --- 4. UTILITY FUNCTIONS ---
+def get_db():
+    with Session(engine) as session:
+        yield session
+
 def calculate_life_path(dob: date) -> int:
     digits = f"{dob.year}{dob.month:02d}{dob.day:02d}"
     lp = sum(int(d) for d in digits)
@@ -62,78 +62,55 @@ def calculate_life_path(dob: date) -> int:
         lp = sum(int(d) for d in str(lp))
     return lp
 
-def get_zodiac_sign(dob: date) -> str:
-    m, d = dob.month, dob.day
-    if (m == 3 and d >= 21) or (m == 4 and d <= 19): return "Aries"
-    if (m == 4 and d >= 20) or (m == 5 and d <= 20): return "Taurus"
-    if (m == 5 and d >= 21) or (m == 6 and d <= 20): return "Gemini"
-    if (m == 6 and d >= 21) or (m == 7 and d <= 22): return "Cancer"
-    if (m == 7 and d >= 23) or (m == 8 and d <= 22): return "Leo"
-    if (m == 8 and d >= 23) or (m == 9 and d <= 22): return "Virgo"
-    if (m == 9 and d >= 23) or (m == 10 and d <= 22): return "Libra"
-    if (m == 10 and d >= 23) or (m == 11 and d <= 21): return "Scorpio"
-    if (m == 11 and d >= 22) or (m == 12 and d <= 21): return "Sagittarius"
-    if (m == 12 and d >= 22) or (m == 1 and d <= 19): return "Capricorn"
-    if (m == 1 and d >= 20) or (m == 2 and d <= 18): return "Aquarius"
-    return "Pisces"
-
-def safety_filter(text: str) -> bool:
-    if re.search(r'[\w\.-]+@[\w\.-]+', text) or re.search(r'\d{10}', text):
-        return True # Trigger ban
-    return False
-
-def get_db():
-    with Session(engine) as session:
-        yield session
-
 # --- 5. API ENDPOINTS ---
 
 @app.post("/request-otp")
 async def request_otp(contact: str):
     otp = str(random.randint(1000, 9999))
-    # CHECK RENDER LOGS FOR THIS CODE
     print(f"--- [SECURITY] OTP for {contact}: {otp} ---")
-    return {"status": "OTP_SENT", "message": "Verification code generated in logs."}
+    return {"status": "OTP_SENT"}
+
+@app.get("/calculate-match")
+def calculate_match(dob: str):
+    """Calculates 4 pillars: Foundation, Communication, Loyalty, and Finance."""
+    try:
+        birth_date = date.fromisoformat(dob)
+        lp = calculate_life_path(birth_date)
+        
+        # Deterministic scores based on Life Path
+        foundation = 85 + (lp % 10)
+        comm = 80 + (lp * 2 % 15)
+        loyalty = 90 + (lp % 9)
+        finance = 75 + (lp * 3 % 20) # 4th Pillar: Financial Compatibility
+        
+        return {
+            "score": int((foundation + comm + loyalty + finance) / 4),
+            "pillars": {
+                "Foundation": f"{foundation}%",
+                "Communication": f"{comm}%",
+                "Loyalty Index": f"{loyalty}%",
+                "Financial Compatibility": f"{finance}%"
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+@app.post("/analyze-palm")
+async def analyze_palm(file: UploadFile = File(...)):
+    """AI Image Analysis for Symbolic Loyalty/Financial Reading."""
+    try:
+        img_data = await file.read()
+        img = Image.open(io.BytesIO(img_data))
+        prompt = "Analyze the lines of this palm for a symbolic marriage destiny reading. Focus on loyalty and financial stability."
+        response = ai_model.generate_content([prompt, img])
+        return {"ai_report": response.text, "status": "Success"}
+    except Exception as e:
+        return {"error": str(e), "status": "Failed"}
 
 @app.post("/signup", response_model=User)
 def signup(user: User, db: Session = Depends(get_db)):
-    if safety_filter(user.name) or safety_filter(user.birth_place):
-        user.is_banned = True
-        
     user.life_path = calculate_life_path(user.birthday)
-    user.sun_sign = get_zodiac_sign(user.birthday)
-    
     db.add(user)
     db.commit()
     db.refresh(user)
     return user
-
-@app.get("/compatibility")
-def check_compatibility(lp1: int, lp2: int):
-    groups = [{1, 5, 7}, {2, 4, 8}, {3, 6, 9}]
-    for group in groups:
-        if lp1 in group and lp2 in group:
-            return {
-                "status": "💍 SOULMATE MATCH",
-                "score": 95,
-                "label": "Green Flag ✅",
-                "reason": "Perfect alignment within the same Soulmate Cluster."
-            }
-    
-    if lp1 == 5 or lp2 == 5:
-        return {"status": "✨ KARMIC GROWTH", "score": 45, "label": "Red Flag 🚩", "reason": "High friction; lessons in stability required."}
-
-    return {"status": "✨ STABLE MATCH", "score": 75, "label": "Orange Flag ⚠️", "reason": "Secondary compatibility cluster."}
-
-@app.post("/provide-consent/{user_id}")
-def provide_consent(user_id: int, db: Session = Depends(get_db)):
-    user = db.get(User, user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    user.consent_given = True
-    db.commit()
-    return {"status": "CONSENT_RECORDED"}
-
-@app.get("/users", response_model=List[User])
-def get_matches(db: Session = Depends(get_db)):
-    return db.exec(select(User).where(User.is_banned == False)).all()

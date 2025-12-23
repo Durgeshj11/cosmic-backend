@@ -1,5 +1,4 @@
 alembic==1.17.2
-annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.12.0
 click==8.3.1
@@ -17,6 +16,9 @@ python-multipart==0.0.9
 SQLAlchemy==2.0.45
 sqlmodel==0.0.27
 starlette==0.50.0
-typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.38.0
+# Essential for Gemini AI Palmistry analysis
+google-generativeai==0.8.3
+# Required for image processing before sending to AI
+Pillow==10.4.0
