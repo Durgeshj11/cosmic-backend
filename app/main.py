@@ -11,22 +11,22 @@ from PIL import Image
 app = FastAPI(title="Cosmic Match Pro AI API")
 
 # 🔐 SECURITY: CORS Middleware
-# This allows your Flutter Web app (on GitHub) to talk to this API
+# Allows your Flutter Web app on GitHub to communicate with this Render API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Allows all domains; replace with your GitHub URL for production
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# AI Setup
+# AI Setup: Uses Gemini 1.5 Flash for palm analysis
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- 2. DATABASE SETUP ---
-# Render provides DATABASE_URL; we convert 'postgres://' to 'postgresql://' for SQLModel
+# Converts Render's 'postgres://' to 'postgresql://' for SQLModel compatibility
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///database.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -43,7 +43,7 @@ def create_db_and_tables():
 def on_startup():
     create_db_and_tables()
 
-# --- 3. DATABASE MODELS ---
+# --- 3. DATABASE MODELS (All Features Maintained) ---
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
@@ -51,7 +51,7 @@ class User(SQLModel, table=True):
     mobile: str
     birthday: date 
     birth_time: str
-    birth_place: str
+    birth_place: str  # Preserved for the missing UI field
     life_path: Optional[int] = None
     is_verified: bool = Field(default=False)
     consent_given: bool = Field(default=False)
@@ -62,6 +62,7 @@ def get_db():
         yield session
 
 def calculate_life_path(dob: date) -> int:
+    """Calculates Numerology Life Path from Date of Birth."""
     digits = f"{dob.year}{dob.month:02d}{dob.day:02d}"
     lp = sum(int(d) for d in digits)
     while lp > 9 and lp not in [11, 22, 33]:
@@ -72,14 +73,14 @@ def calculate_life_path(dob: date) -> int:
 
 @app.post("/request-otp")
 async def request_otp(contact: str):
-    """Sends a mock OTP to the terminal logs."""
+    """Generates a mock OTP visible in Render Logs for verification."""
     otp = str(random.randint(1000, 9999))
     print(f"--- [SECURITY] OTP for {contact}: {otp} ---")
     return {"status": "OTP_SENT"}
 
 @app.get("/calculate-match")
 def calculate_match(dob: str):
-    """Calculates 4 pillars based on Life Path."""
+    """Calculates compatibility pillars: Foundation, Communication, Loyalty, Finance."""
     try:
         birth_date = date.fromisoformat(dob)
         lp = calculate_life_path(birth_date)
@@ -103,7 +104,7 @@ def calculate_match(dob: str):
 
 @app.post("/analyze-palm")
 async def analyze_palm(file: UploadFile = File(...)):
-    """Gemini AI Analysis of palm lines."""
+    """AI Palm Analysis: Analyzes uploaded image for marriage destiny."""
     try:
         img_data = await file.read()
         img = Image.open(io.BytesIO(img_data))
@@ -115,7 +116,7 @@ async def analyze_palm(file: UploadFile = File(...)):
 
 @app.post("/signup", response_model=User)
 def signup(user: User, db: Session = Depends(get_db)):
-    """Saves user data and calculates Life Path."""
+    """Saves complete user profile and triggers numerology calculation."""
     user.life_path = calculate_life_path(user.birthday)
     db.add(user)
     db.commit()
