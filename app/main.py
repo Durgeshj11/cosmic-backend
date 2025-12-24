@@ -10,25 +10,31 @@ from PIL import Image
 # --- 1. APP & AI INITIALIZATION ---
 app = FastAPI(title="Cosmic Match Pro AI API")
 
-# SECURITY: Set GEMINI_API_KEY in Render Environment Variables
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
-
+# 🔐 SECURITY: CORS Middleware
+# This allows your Flutter Web app (on GitHub) to talk to this API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"], # Allows all domains; replace with your GitHub URL for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# AI Setup
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+genai.configure(api_key=GEMINI_API_KEY)
+ai_model = genai.GenerativeModel('gemini-1.5-flash')
+
 # --- 2. DATABASE SETUP ---
+# Render provides DATABASE_URL; we convert 'postgres://' to 'postgresql://' for SQLModel
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///database.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
+engine = create_engine(
+    DATABASE_URL, 
+    connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+)
 
 def create_db_and_tables():
     SQLModel.metadata.create_all(engine)
@@ -66,22 +72,22 @@ def calculate_life_path(dob: date) -> int:
 
 @app.post("/request-otp")
 async def request_otp(contact: str):
+    """Sends a mock OTP to the terminal logs."""
     otp = str(random.randint(1000, 9999))
     print(f"--- [SECURITY] OTP for {contact}: {otp} ---")
     return {"status": "OTP_SENT"}
 
 @app.get("/calculate-match")
 def calculate_match(dob: str):
-    """Calculates 4 pillars: Foundation, Communication, Loyalty, and Finance."""
+    """Calculates 4 pillars based on Life Path."""
     try:
         birth_date = date.fromisoformat(dob)
         lp = calculate_life_path(birth_date)
         
-        # Deterministic scores based on Life Path
         foundation = 85 + (lp % 10)
         comm = 80 + (lp * 2 % 15)
         loyalty = 90 + (lp % 9)
-        finance = 75 + (lp * 3 % 20) # 4th Pillar: Financial Compatibility
+        finance = 75 + (lp * 3 % 20)
         
         return {
             "score": int((foundation + comm + loyalty + finance) / 4),
@@ -92,12 +98,12 @@ def calculate_match(dob: str):
                 "Financial Compatibility": f"{finance}%"
             }
         }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="Invalid date format")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
 @app.post("/analyze-palm")
 async def analyze_palm(file: UploadFile = File(...)):
-    """AI Image Analysis for Symbolic Loyalty/Financial Reading."""
+    """Gemini AI Analysis of palm lines."""
     try:
         img_data = await file.read()
         img = Image.open(io.BytesIO(img_data))
@@ -109,6 +115,7 @@ async def analyze_palm(file: UploadFile = File(...)):
 
 @app.post("/signup", response_model=User)
 def signup(user: User, db: Session = Depends(get_db)):
+    """Saves user data and calculates Life Path."""
     user.life_path = calculate_life_path(user.birthday)
     db.add(user)
     db.commit()
