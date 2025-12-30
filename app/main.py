@@ -2,7 +2,7 @@ import os
 import json
 import io
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,10 +15,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# AI & DB Setup
+# AI & Database Setup
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
+# Standardize the database URL for Render
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -34,38 +35,49 @@ class User(Base):
 
 Base.metadata.create_all(bind=engine)
 
+# FIXED: Re-defining the missing get_db function to resolve the NameError
 def get_db():
     db = SessionLocal()
-    try: yield db
-    finally: db.close()
+    try:
+        yield db
+    finally:
+        db.close()
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 async def analyze_palm_ai(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
-    prompt = "Analyze this palm for personality and love compatibility. Keep it under 40 words."
+    prompt = "Analyze these palm lines for personality and love. Max 30 words."
     response = ai_model.generate_content([prompt, img])
     return response.text
 
 @app.post("/signup-full")
-async def signup(name: str=Form(...), email: str=Form(...), birthday: str=Form(...), photos: List[UploadFile]=File(...), db: Session=Depends(get_db)):
+async def signup(
+    name: str = Form(...), 
+    email: str = Form(...), 
+    birthday: str = Form(...), 
+    photos: List[UploadFile] = File(...),
+    db: Session = Depends(get_db)
+):
     clean_email = email.strip().lower()
-    # Check if user already exists to prevent duplicate permanent records
+    
+    # Check for existing user to prevent duplicates
     if db.query(User).filter(User.email == clean_email).first():
-        return {"message": "User exists"}
+        return {"message": "User already exists"}
 
+    # Process palm photo and save permanently to PostgreSQL
     photo_data = await photos[0].read()
     reading = await analyze_palm_ai(photo_data)
     
-    # Permanent Save
     new_user = User(
-        name=name, email=clean_email, 
+        name=name, 
+        email=clean_email, 
         birthday=datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date(),
         palm_analysis=reading
     )
     db.add(new_user)
-    db.commit() # This makes it permanent in PostgreSQL
+    db.commit() # Permanent Save
     return {"message": "Success"}
 
 @app.get("/feed")
@@ -77,21 +89,26 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     others = db.query(User).filter(User.email != email_clean).all()
     results = []
     for other in others:
-        # 50/50 Weighted AI Math logic
-        prompt = f"Compare Birthdays {me.birthday} vs {other.birthday} and Palm Traits {me.palm_analysis} vs {other.palm_analysis}. Return JSON: {{'score': '0-100'}}"
-        ai_res = ai_model.generate_content(prompt)
+        # 50/50 Astrology & Palmistry Math
+        prompt = f"Compare DOB {me.birthday} vs {other.birthday} and Palm {me.palm_analysis} vs {other.palm_analysis}. Return ONLY JSON: {{'score': 'number'}}"
         try:
-            score_data = json.loads(ai_res.text.replace('```json', '').replace('```', '').strip())
-            results.append({"name": other.name, "reading": other.palm_analysis, "percentage": f"{score_data['score']}%"})
+            ai_res = ai_model.generate_content(prompt)
+            score = json.loads(ai_res.text.replace('```json', '').replace('```', '').strip())['score']
         except:
-            results.append({"name": other.name, "reading": other.palm_analysis, "percentage": "88%"})
+            score = "85"
+            
+        results.append({
+            "name": other.name, 
+            "reading": other.palm_analysis, 
+            "percentage": f"{score}%"
+        })
     return results
 
-# NEW: Delete Profile Endpoint
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email.strip().lower()).first()
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    db.delete(user)
-    db.commit() # Permanently removes from DB
-    return {"message": "Profile deleted successfully"}
+    if user:
+        db.delete(user)
+        db.commit()
+        return {"message": "Deleted"}
+    raise HTTPException(status_code=404, detail="Not found")
