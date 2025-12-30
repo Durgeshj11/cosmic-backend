@@ -1,7 +1,9 @@
 import os
 import json
+import io
 from datetime import datetime
 from typing import List, Optional
+
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine, Column, Integer, String, Date
@@ -9,15 +11,15 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import google.generativeai as genai
 from PIL import Image
-import io
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Setup Gemini for Astrology & Palmistry
+# AI Configuration
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-1.5-flash')
+ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
+# Database Setup
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -29,17 +31,25 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    palm_analysis = Column(String, nullable=True) # Stores AI palm reading
+    palm_analysis = Column(String, nullable=True)
 
 Base.metadata.create_all(bind=engine)
+
+# FIXED: Restoring the missing get_db function
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-async def analyze_palm(photo_bytes):
-    img = Image.open(io.BytesIO(photo_bytes))
-    prompt = "Analyze this palm for personality traits. Keep it to 2 sentences."
-    response = model.generate_content([prompt, img])
+async def analyze_palm_ai(image_bytes):
+    img = Image.open(io.BytesIO(image_bytes))
+    prompt = "Read this palm lines for personality and love compatibility. Keep it under 50 words."
+    response = ai_model.generate_content([prompt, img])
     return response.text
 
 @app.post("/signup-full")
@@ -48,12 +58,14 @@ async def signup(
     birthday: str = Form(...), photos: List[UploadFile] = File(...),
     db: Session = Depends(get_db)
 ):
-    # Perform Palm Reading on the first photo
+    clean_email = email.strip().lower()
+    
+    # Process the palm photo
     photo_data = await photos[0].read()
-    reading = await analyze_palm(photo_data)
+    reading = await analyze_palm_ai(photo_data)
     
     new_user = User(
-        name=name, email=email.lower(), 
+        name=name, email=clean_email, 
         birthday=datetime.strptime(birthday, "%Y-%m-%d").date(),
         palm_analysis=reading
     )
@@ -61,17 +73,10 @@ async def signup(
     db.commit()
     return {"message": "Success", "analysis": reading}
 
-@app.get("/compatibility")
-async def check_compatibility(my_email: str, target_email: str, db: Session = Depends(get_db)):
-    user1 = db.query(User).filter(User.email == my_email.lower()).first()
-    user2 = db.query(User).filter(User.email == target_email.lower()).first()
-    
-    # AI Comparison of Astrology (DOB) and Palm Analysis
-    prompt = f"""
-    Calculate compatibility between:
-    Person A: Born {user1.birthday}, Palm traits: {user1.palm_analysis}
-    Person B: Born {user2.birthday}, Palm traits: {user2.palm_analysis}
-    Provide a percentage and a 1-sentence explanation.
-    """
-    response = model.generate_content(prompt)
-    return {"result": response.text}
+@app.get("/feed")
+def get_feed(current_email: str, db: Session = Depends(get_db)):
+    email_clean = current_email.strip().lower()
+    me = db.query(User).filter(User.email == email_clean).first()
+    if not me: raise HTTPException(status_code=404, detail="Not Found")
+    others = db.query(User).filter(User.email != email_clean).all()
+    return [{"name": o.name, "reading": o.palm_analysis} for o in others]
