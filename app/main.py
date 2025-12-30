@@ -15,10 +15,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# AI & Database Setup
+# AI Configuration
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
+# Database Setup
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -30,11 +31,11 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    palm_analysis = Column(String, nullable=True)
+    palm_analysis = Column(String, nullable=True) # Successfully added via fix_db.py
 
 Base.metadata.create_all(bind=engine)
 
-# FIXED: Re-defining the missing get_db function
+# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -43,11 +44,22 @@ def get_db():
         db.close()
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# FIXED: Explicit CORS for Firebase and Localhost
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://cosmic-soulmate-web.web.app", 
+        "http://localhost"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 async def analyze_palm_ai(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
-    prompt = "Read this palm for personality and love. Max 30 words."
+    prompt = "Perform a palm reading for personality and love. Max 30 words."
     response = ai_model.generate_content([prompt, img])
     return response.text
 
@@ -60,9 +72,12 @@ async def signup(
     db: Session = Depends(get_db)
 ):
     clean_email = email.strip().lower()
+    
+    # Check if user exists
     if db.query(User).filter(User.email == clean_email).first():
         return {"message": "User exists"}
 
+    # Process photo from bytes
     photo_data = await photos[0].read()
     reading = await analyze_palm_ai(photo_data)
     
@@ -73,23 +88,28 @@ async def signup(
         palm_analysis=reading
     )
     db.add(new_user)
-    db.commit() # Permanent Save
+    db.commit() # Save permanently
     return {"message": "Success"}
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
-    me = db.query(User).filter(User.email == current_email.strip().lower()).first()
-    if not me: raise HTTPException(status_code=404, detail="User Not Found")
+    email_clean = current_email.strip().lower()
+    me = db.query(User).filter(User.email == email_clean).first()
+    if not me: 
+        raise HTTPException(status_code=404, detail="User Not Found")
     
-    others = db.query(User).filter(User.email != me.email).all()
+    others = db.query(User).filter(User.email != email_clean).all()
     results = []
     for other in others:
-        prompt = f"Compare DOB {me.birthday} vs {other.birthday} and Palm {me.palm_analysis} vs {other.palm_analysis}. Return ONLY JSON: {{'score': 'number'}}"
+        # AI Comparison for percentage
+        prompt = f"Compare Birthdays {me.birthday} vs {other.birthday} and Palm {me.palm_analysis} vs {other.palm_analysis}. Return ONLY JSON: {{'score': 'number'}}"
         try:
             ai_res = ai_model.generate_content(prompt)
-            score = json.loads(ai_res.text.replace('```json', '').replace('```', '').strip())['score']
+            # Remove markdown if present and parse
+            clean_json = ai_res.text.replace('```json', '').replace('```', '').strip()
+            score = json.loads(clean_json)['score']
         except:
-            score = "85"
+            score = "85" # Fallback
             
         results.append({
             "name": other.name, 
@@ -103,6 +123,6 @@ def delete_profile(email: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if user:
         db.delete(user)
-        db.commit()
+        db.commit() # Permanent removal
         return {"message": "Deleted"}
     raise HTTPException(status_code=404, detail="Not found")
