@@ -53,7 +53,6 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     mobile = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    # Fields are nullable=True to support "Unknown" birth data
     birth_time = Column(String, nullable=True) 
     birth_place = Column(String, nullable=True)
     palm_reading = Column(String, nullable=True)
@@ -117,9 +116,10 @@ def calculate_detailed_compatibility(u1: User, u2: User):
 # ==========================================
 app = FastAPI()
 
+# MASTER CORS FIX: Allows connections from all origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://cosmic-soulmate-web.web.app", "http://localhost:3000", "*"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -142,7 +142,6 @@ async def signup_full(
     except:
         bday_obj = date(2000, 1, 1)
 
-    # 1. Gemini Palm Analysis
     final_reading, final_score = "Stars are aligning for you.", 75
     if palm_image:
         try:
@@ -156,7 +155,6 @@ async def signup_full(
                 if "Reading:" in line: final_reading = line.split("Reading:")[1].strip()
         except: pass
 
-    # 2. Photo Upload
     photo_urls = []
     for p in photos:
         try:
@@ -174,7 +172,8 @@ async def signup_full(
     db.commit()
     return {"message": "Destiny Initialized", "user_id": new_user.id}
 
-@app.get("/feed")
+# Added trailing slash for reliability
+@app.get("/feed/")
 def get_feed(current_email: str, db: Session = Depends(get_db)):
     me = db.query(User).filter(User.email == current_email).first()
     if not me: raise HTTPException(status_code=404, detail="Profile not found")
@@ -195,14 +194,14 @@ class ChatMsg(BaseModel):
     receiver_id: int
     content: str
 
-@app.post("/chat/send")
+@app.post("/chat/send/")
 def send_chat(msg: ChatMsg, db: Session = Depends(get_db)):
     new_m = Message(sender_email=msg.sender_email, receiver_id=msg.receiver_id, content=msg.content)
     db.add(new_m)
     db.commit()
     return {"status": "sent"}
 
-@app.get("/chat/history")
+@app.get("/chat/history/")
 def get_history(my_email: str, other_id: int, db: Session = Depends(get_db)):
     me = db.query(User).filter(User.email == my_email).first()
     if not me: return []
@@ -220,4 +219,4 @@ def dashboard(db: Session = Depends(get_db)):
         "photos": json.loads(u.photos_json)
     } for u in users]
 
-# Force Update 3.0 Final - Feed Route Verification
+# Force Update 4.0 MASTER CORS FIX
