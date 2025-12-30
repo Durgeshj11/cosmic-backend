@@ -116,7 +116,7 @@ def calculate_detailed_compatibility(u1: User, u2: User):
 # ==========================================
 app = FastAPI()
 
-# MASTER CORS FIX
+# Master CORS fix: Allows all connections from your Firebase frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -134,7 +134,7 @@ async def signup_full(
     palm_reading: str = Form(...), photos: List[UploadFile] = File(...),
     palm_image: UploadFile = File(None), db: Session = Depends(get_db)
 ):
-    # Standardize lookup email to lowercase
+    # Normalize email to lowercase for storage and lookup
     existing_user = db.query(User).filter((User.email == email.lower()) | (User.mobile == mobile)).first()
     if existing_user: return {"message": "User exists", "user_id": existing_user.id}
 
@@ -173,10 +173,11 @@ async def signup_full(
     db.commit()
     return {"message": "Destiny Initialized", "user_id": new_user.id}
 
-# DOUBLE ROUTE FIX: Accepts /feed and /feed/
+# Double Route Fix: Accepts both /feed and /feed/
 @app.get("/feed")
 @app.get("/feed/")
 def get_feed(current_email: str, db: Session = Depends(get_db)):
+    # Standardize lookup email
     me = db.query(User).filter(User.email == current_email.lower()).first()
     if not me: raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -196,7 +197,6 @@ class ChatMsg(BaseModel):
     receiver_id: int
     content: str
 
-# DOUBLE ROUTE FIX: Accepts /chat/send and /chat/send/
 @app.post("/chat/send")
 @app.post("/chat/send/")
 def send_chat(msg: ChatMsg, db: Session = Depends(get_db)):
@@ -205,7 +205,6 @@ def send_chat(msg: ChatMsg, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "sent"}
 
-# DOUBLE ROUTE FIX: Accepts /chat/history and /chat/history/
 @app.get("/chat/history")
 @app.get("/chat/history/")
 def get_history(my_email: str, other_id: int, db: Session = Depends(get_db)):
@@ -222,7 +221,6 @@ def get_history(my_email: str, other_id: int, db: Session = Depends(get_db)):
     return [{"content": m.content, "is_me": m.sender_email == my_email.lower()} for m in msgs]
 
 @app.get("/dashboard")
-@app.get("/dashboard/")
 def dashboard(db: Session = Depends(get_db)):
     users = db.query(User).all()
     return [{
@@ -230,4 +228,4 @@ def dashboard(db: Session = Depends(get_db)):
         "photos": json.loads(u.photos_json)
     } for u in users]
 
-# Force Update 5.0 - Double Routing & Case Insensitive Logic
+# Force Update 5.0 - Flexible Routing & Case-Insensitive Lookup
