@@ -18,7 +18,7 @@ from PIL import Image
 import cloudinary
 import cloudinary.uploader
 
-# Load configuration
+# Load environment variables
 load_dotenv()
 
 # ==========================================
@@ -53,7 +53,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     mobile = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    # FIX: Set nullable=True to allow missing birth details
+    # Changed to nullable=True to support flexible signups
     birth_time = Column(String, nullable=True) 
     birth_place = Column(String, nullable=True)
     palm_reading = Column(String, nullable=True)
@@ -63,8 +63,8 @@ class User(Base):
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
-    sender_id = Column(Integer, ForeignKey("user.id"), nullable=False)
-    receiver_id = Column(Integer, ForeignKey("user.id"), nullable=False)
+    sender_email = Column(String, nullable=False)
+    receiver_id = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
@@ -78,7 +78,7 @@ def get_db():
         db.close()
 
 # ==========================================
-# 3. ADVANCED COSMIC LOGIC
+# 3. COSMIC LOGIC
 # ==========================================
 def get_zodiac_sign(d: date):
     day, month = d.day, d.month
@@ -125,13 +125,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
 @app.post("/signup-full")
 async def signup_full(
     name: str = Form(...), email: str = Form(...), mobile: str = Form(...),
     birthday: str = Form(...), 
-    # FIX: Make optional to avoid 422 errors
     birth_time: Optional[str] = Form(None), 
     birth_place: Optional[str] = Form(None),
     palm_reading: str = Form(...), photos: List[UploadFile] = File(...),
@@ -192,6 +189,29 @@ def get_feed(current_email: str, db: Session = Depends(get_db)):
             "breakdown": stats, "bio": other.palm_reading, "photos": json.loads(other.photos_json)
         })
     return sorted(results, key=lambda x: int(x['compatibility'].replace('%','')), reverse=True)
+
+# Chat Endpoints for Real-time Messaging
+class ChatMsg(BaseModel):
+    sender_email: str
+    receiver_id: int
+    content: str
+
+@app.post("/chat/send")
+def send_chat(msg: ChatMsg, db: Session = Depends(get_db)):
+    new_m = Message(sender_email=msg.sender_email, receiver_id=msg.receiver_id, content=msg.content)
+    db.add(new_m)
+    db.commit()
+    return {"status": "sent"}
+
+@app.get("/chat/history")
+def get_history(my_email: str, other_id: int, db: Session = Depends(get_db)):
+    me = db.query(User).filter(User.email == my_email).first()
+    if not me: return []
+    msgs = db.query(Message).filter(
+        ((Message.sender_email == my_email) & (Message.receiver_id == other_id)) |
+        ((Message.sender_email == db.query(User).filter(User.id == other_id).first().email) & (Message.receiver_id == me.id))
+    ).order_by(Message.timestamp).all()
+    return [{"content": m.content, "is_me": m.sender_email == my_email} for m in msgs]
 
 @app.get("/dashboard")
 def dashboard(db: Session = Depends(get_db)):
