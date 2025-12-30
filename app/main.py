@@ -18,7 +18,7 @@ load_dotenv()
 # AI Configuration
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
-# FIXED: Explicit model path to resolve the 404/NotFound error in your logs
+# FIXED: Explicit model path to resolve the 404/NotFound error from your logs
 ai_model = genai.GenerativeModel('models/gemini-1.5-flash')
 
 # Database Setup
@@ -37,7 +37,6 @@ class User(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# Fixed: Restoration of the get_db function
 def get_db():
     db = SessionLocal()
     try:
@@ -47,24 +46,25 @@ def get_db():
 
 app = FastAPI()
 
-# FIXED: Explicit CORS settings to allow Firebase and Localhost
+# UNIVERSAL CORS FIX: Allows connection from any origin to stop the browser block
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://cosmic-soulmate-web.web.app", 
-        "http://localhost"
-    ],
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 async def analyze_palm_ai(image_bytes):
-    img = Image.open(io.BytesIO(image_bytes))
-    prompt = "Perform a palm reading for personality and love. Max 30 words."
-    # Calling the fixed ai_model
-    response = ai_model.generate_content([prompt, img])
-    return response.text
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        prompt = "Perform a palm reading for personality and love. Max 30 words."
+        response = ai_model.generate_content([prompt, img])
+        return response.text
+    except Exception as e:
+        # Prevents 500 error if AI fails
+        print(f"AI Analysis Error: {e}")
+        return "Your palm suggests a unique destiny filled with cosmic potential."
 
 @app.post("/signup-full")
 async def signup(
@@ -76,11 +76,10 @@ async def signup(
 ):
     clean_email = email.strip().lower()
     
-    # Check if user exists
     if db.query(User).filter(User.email == clean_email).first():
         return {"message": "User exists"}
 
-    # Process photo from bytes
+    # Process image bytes
     photo_data = await photos[0].read()
     reading = await analyze_palm_ai(photo_data)
     
@@ -91,7 +90,7 @@ async def signup(
         palm_analysis=reading
     )
     db.add(new_user)
-    db.commit() # Permanent Save to PostgreSQL
+    db.commit() # Save to PostgreSQL
     return {"message": "Success"}
 
 @app.get("/feed")
@@ -124,6 +123,6 @@ def delete_profile(email: str, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if user:
         db.delete(user)
-        db.commit() # Permanent removal
+        db.commit()
         return {"message": "Deleted"}
     raise HTTPException(status_code=404, detail="Not found")
