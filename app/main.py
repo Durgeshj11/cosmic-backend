@@ -116,7 +116,7 @@ def calculate_detailed_compatibility(u1: User, u2: User):
 # ==========================================
 app = FastAPI()
 
-# MASTER CORS FIX: Allows connections from all origins
+# MASTER CORS FIX
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -134,7 +134,8 @@ async def signup_full(
     palm_reading: str = Form(...), photos: List[UploadFile] = File(...),
     palm_image: UploadFile = File(None), db: Session = Depends(get_db)
 ):
-    existing_user = db.query(User).filter((User.email == email) | (User.mobile == mobile)).first()
+    # Standardize lookup email to lowercase
+    existing_user = db.query(User).filter((User.email == email.lower()) | (User.mobile == mobile)).first()
     if existing_user: return {"message": "User exists", "user_id": existing_user.id}
 
     try:
@@ -163,7 +164,7 @@ async def signup_full(
         except: photo_urls.append("https://via.placeholder.com/300")
 
     new_user = User(
-        name=name, email=email, mobile=mobile, birthday=bday_obj,
+        name=name, email=email.lower(), mobile=mobile, birthday=bday_obj,
         birth_time=birth_time, birth_place=birth_place,
         palm_reading=final_reading, palm_score=final_score,
         photos_json=json.dumps(photo_urls)
@@ -172,13 +173,14 @@ async def signup_full(
     db.commit()
     return {"message": "Destiny Initialized", "user_id": new_user.id}
 
-# Added trailing slash for reliability
+# DOUBLE ROUTE FIX: Accepts /feed and /feed/
+@app.get("/feed")
 @app.get("/feed/")
 def get_feed(current_email: str, db: Session = Depends(get_db)):
-    me = db.query(User).filter(User.email == current_email).first()
+    me = db.query(User).filter(User.email == current_email.lower()).first()
     if not me: raise HTTPException(status_code=404, detail="Profile not found")
     
-    others = db.query(User).filter(User.email != current_email).all()
+    others = db.query(User).filter(User.email != current_email.lower()).all()
     results = []
     for other in others:
         stats = calculate_detailed_compatibility(me, other)
@@ -194,24 +196,33 @@ class ChatMsg(BaseModel):
     receiver_id: int
     content: str
 
+# DOUBLE ROUTE FIX: Accepts /chat/send and /chat/send/
+@app.post("/chat/send")
 @app.post("/chat/send/")
 def send_chat(msg: ChatMsg, db: Session = Depends(get_db)):
-    new_m = Message(sender_email=msg.sender_email, receiver_id=msg.receiver_id, content=msg.content)
+    new_m = Message(sender_email=msg.sender_email.lower(), receiver_id=msg.receiver_id, content=msg.content)
     db.add(new_m)
     db.commit()
     return {"status": "sent"}
 
+# DOUBLE ROUTE FIX: Accepts /chat/history and /chat/history/
+@app.get("/chat/history")
 @app.get("/chat/history/")
 def get_history(my_email: str, other_id: int, db: Session = Depends(get_db)):
-    me = db.query(User).filter(User.email == my_email).first()
+    me = db.query(User).filter(User.email == my_email.lower()).first()
     if not me: return []
+    
+    other_user = db.query(User).filter(User.id == other_id).first()
+    if not other_user: return []
+
     msgs = db.query(Message).filter(
-        ((Message.sender_email == my_email) & (Message.receiver_id == other_id)) |
-        ((Message.sender_email == db.query(User).filter(User.id == other_id).first().email) & (Message.receiver_id == me.id))
+        ((Message.sender_email == my_email.lower()) & (Message.receiver_id == other_id)) |
+        ((Message.sender_email == other_user.email) & (Message.receiver_id == me.id))
     ).order_by(Message.timestamp).all()
-    return [{"content": m.content, "is_me": m.sender_email == my_email} for m in msgs]
+    return [{"content": m.content, "is_me": m.sender_email == my_email.lower()} for m in msgs]
 
 @app.get("/dashboard")
+@app.get("/dashboard/")
 def dashboard(db: Session = Depends(get_db)):
     users = db.query(User).all()
     return [{
@@ -219,4 +230,4 @@ def dashboard(db: Session = Depends(get_db)):
         "photos": json.loads(u.photos_json)
     } for u in users]
 
-# Force Update 4.0 MASTER CORS FIX
+# Force Update 5.0 - Double Routing & Case Insensitive Logic
