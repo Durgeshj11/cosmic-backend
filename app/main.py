@@ -19,7 +19,6 @@ load_dotenv()
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Standardize the database URL for Render
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -35,7 +34,7 @@ class User(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# FIXED: Re-defining the missing get_db function to resolve the NameError
+# FIXED: Re-defining the missing get_db function
 def get_db():
     db = SessionLocal()
     try:
@@ -48,7 +47,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 async def analyze_palm_ai(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
-    prompt = "Analyze these palm lines for personality and love. Max 30 words."
+    prompt = "Read this palm for personality and love. Max 30 words."
     response = ai_model.generate_content([prompt, img])
     return response.text
 
@@ -61,12 +60,9 @@ async def signup(
     db: Session = Depends(get_db)
 ):
     clean_email = email.strip().lower()
-    
-    # Check for existing user to prevent duplicates
     if db.query(User).filter(User.email == clean_email).first():
-        return {"message": "User already exists"}
+        return {"message": "User exists"}
 
-    # Process palm photo and save permanently to PostgreSQL
     photo_data = await photos[0].read()
     reading = await analyze_palm_ai(photo_data)
     
@@ -82,14 +78,12 @@ async def signup(
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
-    email_clean = current_email.strip().lower()
-    me = db.query(User).filter(User.email == email_clean).first()
+    me = db.query(User).filter(User.email == current_email.strip().lower()).first()
     if not me: raise HTTPException(status_code=404, detail="User Not Found")
     
-    others = db.query(User).filter(User.email != email_clean).all()
+    others = db.query(User).filter(User.email != me.email).all()
     results = []
     for other in others:
-        # 50/50 Astrology & Palmistry Math
         prompt = f"Compare DOB {me.birthday} vs {other.birthday} and Palm {me.palm_analysis} vs {other.palm_analysis}. Return ONLY JSON: {{'score': 'number'}}"
         try:
             ai_res = ai_model.generate_content(prompt)
