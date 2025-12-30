@@ -53,7 +53,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     mobile = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    # Changed to nullable=True to support flexible signups
+    # Fields are nullable=True to support "Unknown" birth data
     birth_time = Column(String, nullable=True) 
     birth_place = Column(String, nullable=True)
     palm_reading = Column(String, nullable=True)
@@ -190,7 +190,6 @@ def get_feed(current_email: str, db: Session = Depends(get_db)):
         })
     return sorted(results, key=lambda x: int(x['compatibility'].replace('%','')), reverse=True)
 
-# Chat Endpoints for Real-time Messaging
 class ChatMsg(BaseModel):
     sender_email: str
     receiver_id: int
@@ -220,4 +219,5 @@ def dashboard(db: Session = Depends(get_db)):
         "name": u.name, "email": u.email, "palm": u.palm_reading, 
         "photos": json.loads(u.photos_json)
     } for u in users]
-# Force Update 2.0
+
+# Force Update 3.0 Final - Feed Route Verification
