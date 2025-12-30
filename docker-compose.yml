@@ -4,6 +4,7 @@ services:
   db:
     image: postgres:15-alpine
     restart: always
+    container_name: cosmic_postgres
     environment:
       - POSTGRES_USER=cosmic_admin
       - POSTGRES_PASSWORD=secure_password_123
@@ -12,6 +13,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cosmic_admin -d cosmic_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

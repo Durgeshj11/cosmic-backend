@@ -1,24 +1,9 @@
-alembic==1.17.2
-annotated-types==0.7.0
-anyio==4.12.0
-click==8.3.1
-colorama==0.4.6
-fastapi==0.124.4
-greenlet==3.3.0
-h11==0.16.0
-idna==3.11
-Mako==1.3.10
-MarkupSafe==3.0.3
-psycopg2-binary==2.9.11
-pydantic==2.12.5
-pydantic_core==2.41.5
-python-multipart==0.0.9
-SQLAlchemy==2.0.45
-sqlmodel==0.0.27
-starlette==0.50.0
-typing_extensions==4.15.0
-uvicorn==0.38.0
-# Essential for Gemini AI Palmistry analysis
+fastapi==0.128.0
+uvicorn==0.34.0
+sqlalchemy==2.0.36
+psycopg2-binary==2.9.10
+python-multipart==0.0.20
 google-generativeai==0.8.3
-# Required for image processing before sending to AI
-Pillow==10.4.0
+cloudinary==1.41.0
+Pillow==11.0.0
+python-dotenv==1.0.1
