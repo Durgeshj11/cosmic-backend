@@ -17,7 +17,9 @@ load_dotenv()
 
 # AI Configuration
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
+
+# FIXED: Explicit model path to resolve the 404/NotFound error in your logs
+ai_model = genai.GenerativeModel('models/gemini-1.5-flash')
 
 # Database Setup
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
@@ -31,11 +33,11 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    palm_analysis = Column(String, nullable=True) # Successfully added via fix_db.py
+    palm_analysis = Column(String, nullable=True)
 
 Base.metadata.create_all(bind=engine)
 
-# Dependency to get DB session
+# Fixed: Restoration of the get_db function
 def get_db():
     db = SessionLocal()
     try:
@@ -45,7 +47,7 @@ def get_db():
 
 app = FastAPI()
 
-# FIXED: Explicit CORS for Firebase and Localhost
+# FIXED: Explicit CORS settings to allow Firebase and Localhost
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -60,6 +62,7 @@ app.add_middleware(
 async def analyze_palm_ai(image_bytes):
     img = Image.open(io.BytesIO(image_bytes))
     prompt = "Perform a palm reading for personality and love. Max 30 words."
+    # Calling the fixed ai_model
     response = ai_model.generate_content([prompt, img])
     return response.text
 
@@ -88,7 +91,7 @@ async def signup(
         palm_analysis=reading
     )
     db.add(new_user)
-    db.commit() # Save permanently
+    db.commit() # Permanent Save to PostgreSQL
     return {"message": "Success"}
 
 @app.get("/feed")
@@ -101,11 +104,9 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     others = db.query(User).filter(User.email != email_clean).all()
     results = []
     for other in others:
-        # AI Comparison for percentage
         prompt = f"Compare Birthdays {me.birthday} vs {other.birthday} and Palm {me.palm_analysis} vs {other.palm_analysis}. Return ONLY JSON: {{'score': 'number'}}"
         try:
             ai_res = ai_model.generate_content(prompt)
-            # Remove markdown if present and parse
             clean_json = ai_res.text.replace('```json', '').replace('```', '').strip()
             score = json.loads(clean_json)['score']
         except:
