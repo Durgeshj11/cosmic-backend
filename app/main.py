@@ -116,7 +116,7 @@ def calculate_detailed_compatibility(u1: User, u2: User):
 # ==========================================
 app = FastAPI()
 
-# Master CORS fix: Allows all connections from your Firebase frontend
+# MASTER CORS: Essential to prevent "Connection Failed"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -134,8 +134,9 @@ async def signup_full(
     palm_reading: str = Form(...), photos: List[UploadFile] = File(...),
     palm_image: UploadFile = File(None), db: Session = Depends(get_db)
 ):
-    # Normalize email to lowercase for storage and lookup
-    existing_user = db.query(User).filter((User.email == email.lower()) | (User.mobile == mobile)).first()
+    # Standardize email to lowercase
+    clean_email = email.strip().lower()
+    existing_user = db.query(User).filter((User.email == clean_email) | (User.mobile == mobile)).first()
     if existing_user: return {"message": "User exists", "user_id": existing_user.id}
 
     try:
@@ -164,7 +165,7 @@ async def signup_full(
         except: photo_urls.append("https://via.placeholder.com/300")
 
     new_user = User(
-        name=name, email=email.lower(), mobile=mobile, birthday=bday_obj,
+        name=name, email=clean_email, mobile=mobile, birthday=bday_obj,
         birth_time=birth_time, birth_place=birth_place,
         palm_reading=final_reading, palm_score=final_score,
         photos_json=json.dumps(photo_urls)
@@ -173,15 +174,18 @@ async def signup_full(
     db.commit()
     return {"message": "Destiny Initialized", "user_id": new_user.id}
 
-# Double Route Fix: Accepts both /feed and /feed/
+# FLEXIBLE ROUTES: Accepts /feed and /feed/
 @app.get("/feed")
 @app.get("/feed/")
 def get_feed(current_email: str, db: Session = Depends(get_db)):
-    # Standardize lookup email
-    me = db.query(User).filter(User.email == current_email.lower()).first()
-    if not me: raise HTTPException(status_code=404, detail="Profile not found")
+    # FIX: Remove any accidental periods or spaces from logs
+    email_clean = current_email.strip().rstrip('.').lower()
+    me = db.query(User).filter(User.email == email_clean).first()
     
-    others = db.query(User).filter(User.email != current_email.lower()).all()
+    if not me: 
+        raise HTTPException(status_code=404, detail=f"Profile '{email_clean}' not found.")
+    
+    others = db.query(User).filter(User.email != email_clean).all()
     results = []
     for other in others:
         stats = calculate_detailed_compatibility(me, other)
@@ -228,4 +232,4 @@ def dashboard(db: Session = Depends(get_db)):
         "photos": json.loads(u.photos_json)
     } for u in users]
 
-# Force Update 5.0 - Flexible Routing & Case-Insensitive Lookup
+# MASTER DEPLOY VERSION 7.0 - Flexible Routing & Log Scrubbing
