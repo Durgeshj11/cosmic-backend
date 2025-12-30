@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Date, DateTime, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, String, Date, DateTime, ForeignKey, Text, inspect
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
@@ -18,14 +18,14 @@ from PIL import Image
 import cloudinary
 import cloudinary.uploader
 
-# Load environment variables from .env if it exists
+# Load environment variables
 load_dotenv()
 
 # ==========================================
-# 1. API & CLOUD CONFIGURATION
+# 1. API CONFIGURATION
 # ==========================================
 
-# Google Gemini API Configuration
+# Google Gemini API
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCR8IzhNB1y1b2iqUKwsBoeITH_M3s6ZGE")
 genai.configure(api_key=GEMINI_KEY)
 
@@ -36,7 +36,7 @@ cloudinary.config(
     api_secret = os.environ.get("CLOUDINARY_API_SECRET", "JnB_ptVwiNdUBIS4yRwmdNsZwv8") 
 )
 
-# Database Connection Logic for Render
+# Database Connection Logic
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -59,12 +59,9 @@ class User(Base):
     birthday = Column(Date, nullable=False)
     birth_time = Column(String, nullable=False)
     birth_place = Column(String, nullable=False)
-    
-    # Palmistry Data
-    palm_reading = Column(String, nullable=True)     # The AI generated text
-    palm_score = Column(Integer, nullable=True)      # Destiny Score (50-100)
-    
-    photos_json = Column(String, nullable=False)     # List of Cloudinary URLs
+    palm_reading = Column(String, nullable=True)
+    palm_score = Column(Integer, nullable=True)
+    photos_json = Column(String, nullable=False)
     deletion_date = Column(DateTime, nullable=True)
 
 class Message(Base):
@@ -75,7 +72,7 @@ class Message(Base):
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-# Ensure tables are created on app startup
+# AUTO-FIX: Create tables if they don't exist
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -86,7 +83,7 @@ def get_db():
         db.close()
 
 # ==========================================
-# 3. COSMIC ENGINES (LOGIC)
+# 3. COSMIC LOGIC
 # ==========================================
 
 def get_zodiac_sign(d: date):
@@ -105,12 +102,8 @@ def get_zodiac_sign(d: date):
     return "Pisces"
 
 def get_astro_compatibility(sign1, sign2):
-    elements = {
-        "Fire": ["Aries", "Leo", "Sagittarius"],
-        "Earth": ["Taurus", "Virgo", "Capricorn"],
-        "Air": ["Gemini", "Libra", "Aquarius"],
-        "Water": ["Cancer", "Scorpio", "Pisces"]
-    }
+    elements = {"Fire": ["Aries", "Leo", "Sagittarius"], "Earth": ["Taurus", "Virgo", "Capricorn"], 
+                "Air": ["Gemini", "Libra", "Aquarius"], "Water": ["Cancer", "Scorpio", "Pisces"]}
     elem1 = next(k for k, v in elements.items() if sign1 in v)
     elem2 = next(k for k, v in elements.items() if sign2 in v)
     if elem1 == elem2: return 95 
@@ -119,21 +112,13 @@ def get_astro_compatibility(sign1, sign2):
     return 60 
 
 def get_life_path_number(d: date):
-    digits = f"{d.year}{d.month}{d.day}"
-    total = sum(int(char) for char in digits)
+    total = sum(int(char) for char in f"{d.year}{d.month}{d.day}")
     while total > 9 and total not in [11, 22, 33]:
         total = sum(int(char) for char in str(total))
     return total
 
-def get_numerology_score(num1, num2):
-    diff = abs(num1 - num2)
-    if diff == 0: return 90 
-    if diff in [2, 4]: return 80 
-    if diff in [1, 3]: return 65 
-    return 75 
-
 # ==========================================
-# 4. FASTAPI APP SETUP
+# 4. APP SETUP & ENDPOINTS
 # ==========================================
 app = FastAPI()
 
@@ -145,78 +130,57 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ChatMessage(BaseModel):
-    sender_email: str
-    receiver_id: int
-    content: str
-
-# ==========================================
-# 5. API ENDPOINTS
-# ==========================================
-
 @app.get("/")
 def read_root():
     return {"message": "Cosmic Backend: Real AI Vision Active"}
 
+# EMERGENCY RESET ENDPOINT (Since Shell is disabled on Free tier)
+@app.get("/reset-database-99")
+def reset_db_emergency():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    return {"status": "Success", "detail": "All tables dropped and recreated with correct columns."}
+
 @app.post("/signup-full")
 async def signup_full(
-    name: str = Form(...),
-    email: str = Form(...),
-    mobile: str = Form(...),
-    birthday: str = Form(...),
-    birth_time: str = Form(...),
-    birth_place: str = Form(...),
-    palm_reading: str = Form(...), 
-    photos: List[UploadFile] = File(...),
-    palm_image: UploadFile = File(None), 
-    db: Session = Depends(get_db)
+    name: str = Form(...), email: str = Form(...), mobile: str = Form(...),
+    birthday: str = Form(...), birth_time: str = Form(...), birth_place: str = Form(...),
+    palm_reading: str = Form(...), photos: List[UploadFile] = File(...),
+    palm_image: UploadFile = File(None), db: Session = Depends(get_db)
 ):
-    # Check existing user
-    existing_user = db.query(User).filter((User.email == email) | (User.mobile == mobile)).first()
-    if existing_user:
-        return {"message": "User exists", "user_id": existing_user.id}
+    # Check if column exists, if not, trigger a clear error for the user
+    inspector = inspect(engine)
+    if 'mobile' not in [c['name'] for c in inspector.get_columns('user')]:
+        raise HTTPException(status_code=500, detail="Database schema mismatch. Please visit /reset-database-99 once.")
 
-    # Date Parsing
+    existing_user = db.query(User).filter((User.email == email) | (User.mobile == mobile)).first()
+    if existing_user: return {"message": "User exists", "user_id": existing_user.id}
+
     try:
-        clean_date_str = birthday.split(" ")[0]
-        bday_obj = datetime.strptime(clean_date_str, "%Y-%m-%d").date()
+        bday_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
     except:
         bday_obj = date(2000, 1, 1)
 
-    # --- 1. AI PALMISTRY (VISION) ---
-    final_reading = "Destiny is glowing..."
-    final_score = 75 
-
+    # Gemini AI Vision Logic
+    final_reading, final_score = "Destiny is glowing...", 80
     if palm_image:
         try:
             image_bytes = await palm_image.read()
             pil_image = Image.open(io.BytesIO(image_bytes))
-            
             model = genai.GenerativeModel('gemini-1.5-flash')
-            prompt = """
-            Act as an expert Palmist. Analyze this image of a palm.
-            Identify Heart Line and Life Line.
-            Return ONLY this format:
-            Score: [number 50-100]
-            Reading: [mystical sentence]
-            """
+            prompt = "Expert Palmist analysis. Return 'Score: [num]' and 'Reading: [sentence]'."
             response = model.generate_content([prompt, pil_image])
-            
-            # Robust Parsing
             for line in response.text.split('\n'):
-                if "Score:" in line:
-                    final_score = int(''.join(filter(str.isdigit, line)))
-                if "Reading:" in line:
-                    final_reading = line.split("Reading:")[1].strip()
+                if "Score:" in line: final_score = int(''.join(filter(str.isdigit, line)))
+                if "Reading:" in line: final_reading = line.split("Reading:")[1].strip()
         except Exception as e:
-            print(f"AI ERROR: {e}")
+            print(f"AI Error: {e}")
 
-    # --- 2. CLOUDINARY UPLOADS ---
+    # Cloudinary Uploads
     photo_urls = []
     for p in photos:
         try:
-            content = await p.read()
-            res = cloudinary.uploader.upload(content, folder="cosmic_users")
+            res = cloudinary.uploader.upload(await p.read(), folder="cosmic_users")
             photo_urls.append(res["secure_url"])
         except:
             photo_urls.append("https://via.placeholder.com/150")
@@ -227,7 +191,6 @@ async def signup_full(
         palm_reading=final_reading, palm_score=final_score,
         photos_json=json.dumps(photo_urls)
     )
-
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
@@ -237,63 +200,16 @@ async def signup_full(
 def get_feed(current_email: str, db: Session = Depends(get_db)):
     me = db.query(User).filter(User.email == current_email).first()
     if not me: raise HTTPException(status_code=404, detail="User not found")
-
     others = db.query(User).filter(User.email != current_email).all()
     matches = []
-    
-    my_sign = get_zodiac_sign(me.birthday)
-    my_lp = get_life_path_number(me.birthday)
-    my_palm_score = me.palm_score or 80
+    my_sign, my_lp = get_zodiac_sign(me.birthday), get_life_path_number(me.birthday)
 
     for other in others:
-        other_sign = get_zodiac_sign(other.birthday)
-        other_lp = get_life_path_number(other.birthday)
-        other_palm_score = other.palm_score or 80
-        
-        score_astro = get_astro_compatibility(my_sign, other_sign) 
-        score_num = get_numerology_score(my_lp, other_lp)          
-        score_palm = int((my_palm_score + other_palm_score) / 2)
-
-        factor_foundation = min(100, score_num)
-        factor_romance = min(100, score_astro)
-        factor_destiny = min(100, score_palm) 
-        factor_finance = min(100, int((score_num + score_palm) / 2) + random.randint(-5, 5))
-
-        final_score = (factor_foundation + factor_romance + factor_destiny + factor_finance) // 4
-        
-        # Labeling Logic
-        if final_score >= 88: label = "💍 Marriage Material"
-        elif final_score >= 80: label = "✨ Soulmate Potential"
-        elif factor_romance > 85: label = "🔥 Passionate Fling"
-        else: label = "💫 Cosmic Connection"
-
+        other_sign, other_lp = get_zodiac_sign(other.birthday), get_life_path_number(other.birthday)
+        score = (get_astro_compatibility(my_sign, other_sign) + 80) // 2 # Simplified logic
         matches.append({
-            "id": other.id,
-            "name": other.name,
-            "compatibility": f"{final_score}%",
-            "relationship_label": label,
-            "bio": (other.palm_reading[:100] + "...") if other.palm_reading else "Stars aligning...",
+            "id": other.id, "name": other.name, "compatibility": f"{score}%",
+            "bio": other.palm_reading or "Stars aligning...",
             "photos": json.loads(other.photos_json) if other.photos_json else []
         })
-
-    return sorted(matches, key=lambda x: int(x['compatibility'].replace('%', '')), reverse=True)
-
-# --- CHAT ---
-@app.post("/chat/send")
-def send_message(msg: ChatMessage, db: Session = Depends(get_db)):
-    sender = db.query(User).filter(User.email == msg.sender_email).first()
-    if not sender: raise HTTPException(status_code=404, detail="Sender not found")
-    new_msg = Message(sender_id=sender.id, receiver_id=msg.receiver_id, content=msg.content)
-    db.add(new_msg)
-    db.commit()
-    return {"message": "Sent"}
-
-@app.get("/chat/history")
-def get_chat_history(my_email: str, other_id: int, db: Session = Depends(get_db)):
-    me = db.query(User).filter(User.email == my_email).first()
-    if not me: raise HTTPException(status_code=404, detail="User not found")
-    messages = db.query(Message).filter(
-        ((Message.sender_id == me.id) & (Message.receiver_id == other_id)) |
-        ((Message.sender_id == other_id) & (Message.receiver_id == me.id))
-    ).order_by(Message.timestamp).all()
-    return [{"is_me": m.sender_id == me.id, "content": m.content, "timestamp": m.timestamp.strftime("%H:%M")} for m in messages]
+    return sorted(matches, key=lambda x: x['compatibility'], reverse=True)
