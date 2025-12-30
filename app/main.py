@@ -220,3 +220,4 @@ def dashboard(db: Session = Depends(get_db)):
         "name": u.name, "email": u.email, "palm": u.palm_reading, 
         "photos": json.loads(u.photos_json)
     } for u in users]
+# Force Update 2.0
