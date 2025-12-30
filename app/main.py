@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Date, DateTime, ForeignKey, Text, inspect
+from sqlalchemy import create_engine, Column, Integer, String, Date, DateTime, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic import BaseModel
@@ -24,7 +24,6 @@ load_dotenv()
 # ==========================================
 # 1. API CONFIGURATION
 # ==========================================
-
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "AIzaSyCR8IzhNB1y1b2iqUKwsBoeITH_M3s6ZGE")
 genai.configure(api_key=GEMINI_KEY)
 
@@ -54,8 +53,9 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     mobile = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    birth_time = Column(String, nullable=False)
-    birth_place = Column(String, nullable=False)
+    # FIX: Set nullable=True to allow missing birth details
+    birth_time = Column(String, nullable=True) 
+    birth_place = Column(String, nullable=True)
     palm_reading = Column(String, nullable=True)
     palm_score = Column(Integer, nullable=True)
     photos_json = Column(String, nullable=False)
@@ -78,9 +78,8 @@ def get_db():
         db.close()
 
 # ==========================================
-# 3. ADVANCED COSMIC LOGIC (For Breakdown Bars)
+# 3. ADVANCED COSMIC LOGIC
 # ==========================================
-
 def get_zodiac_sign(d: date):
     day, month = d.day, d.month
     if (month == 3 and day >= 21) or (month == 4 and day <= 19): return "Aries"
@@ -103,52 +102,41 @@ def get_life_path(d: date):
     return total
 
 def calculate_detailed_compatibility(u1: User, u2: User):
-    """Calculates the 4-tier breakdown for the UI bars"""
-    s1, s2 = get_zodiac_sign(u1.birthday), get_zodiac_sign(u2.birthday)
     lp1, lp2 = get_life_path(u1.birthday), get_life_path(u2.birthday)
-    
-    # Logic for Finance (Earth/Air signs match well here)
     finance = 85 if lp1 == lp2 else random.randint(60, 95)
-    
-    # Logic for Romance (Water/Fire intensity)
-    romance = 90 if s1 == s2 else random.randint(55, 98)
-    
-    # Foundation (Life Path proximity)
+    romance = 90 if get_zodiac_sign(u1.birthday) == get_zodiac_sign(u2.birthday) else random.randint(55, 98)
     foundation = 80 if abs(lp1 - lp2) <= 2 else random.randint(50, 85)
-    
-    # Destiny (Palm Score Correlation)
-    destiny = (u1.palm_score + u2.palm_score) // 2 if u1.palm_score and u2.palm_score else 75
-
+    destiny = (u1.palm_score + u2.palm_score) // 2 if (u1.palm_score and u2.palm_score) else 75
     return {
-        "Foundation": foundation,
-        "Finance": finance,
-        "Romance": romance,
-        "Destiny": destiny,
+        "Foundation": foundation, "Finance": finance, "Romance": romance, "Destiny": destiny,
         "Total": (foundation + finance + romance + destiny) // 4
     }
 
 # ==========================================
-# 4. FASTAPI APP & CORS
+# 4. FASTAPI APP & ENDPOINTS
 # ==========================================
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    # UPDATED: Includes your new Firebase Web GUI URL
     allow_origins=["https://cosmic-soulmate-web.web.app", "http://localhost:3000", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+
+
 @app.post("/signup-full")
 async def signup_full(
     name: str = Form(...), email: str = Form(...), mobile: str = Form(...),
-    birthday: str = Form(...), birth_time: str = Form(...), birth_place: str = Form(...),
+    birthday: str = Form(...), 
+    # FIX: Make optional to avoid 422 errors
+    birth_time: Optional[str] = Form(None), 
+    birth_place: Optional[str] = Form(None),
     palm_reading: str = Form(...), photos: List[UploadFile] = File(...),
     palm_image: UploadFile = File(None), db: Session = Depends(get_db)
 ):
-    # Check existing
     existing_user = db.query(User).filter((User.email == email) | (User.mobile == mobile)).first()
     if existing_user: return {"message": "User exists", "user_id": existing_user.id}
 
@@ -166,13 +154,12 @@ async def signup_full(
             model = genai.GenerativeModel('gemini-1.5-flash')
             prompt = "Act as an expert Palmist. Return ONLY: 'Score: [number 50-100]' and 'Reading: [1 mystical sentence about destiny]'"
             response = model.generate_content([prompt, pil_image])
-            
             for line in response.text.split('\n'):
                 if "Score:" in line: final_score = int(''.join(filter(str.isdigit, line)))
                 if "Reading:" in line: final_reading = line.split("Reading:")[1].strip()
         except: pass
 
-    # 2. Multi-Photo Cloudinary Upload
+    # 2. Photo Upload
     photo_urls = []
     for p in photos:
         try:
@@ -197,23 +184,15 @@ def get_feed(current_email: str, db: Session = Depends(get_db)):
     
     others = db.query(User).filter(User.email != current_email).all()
     results = []
-
     for other in others:
         stats = calculate_detailed_compatibility(me, other)
         results.append({
-            "id": other.id,
-            "name": other.name,
-            "sign": get_zodiac_sign(other.birthday),
-            "lp": get_life_path(other.birthday),
-            "compatibility": f"{stats['Total']}%",
-            "breakdown": stats, # This powers the Foundation/Finance/Romance/Destiny bars
-            "bio": other.palm_reading,
-            "photos": json.loads(other.photos_json)
+            "id": other.id, "name": other.name, "sign": get_zodiac_sign(other.birthday),
+            "lp": get_life_path(other.birthday), "compatibility": f"{stats['Total']}%",
+            "breakdown": stats, "bio": other.palm_reading, "photos": json.loads(other.photos_json)
         })
-    
     return sorted(results, key=lambda x: int(x['compatibility'].replace('%','')), reverse=True)
 
-# Dashboard for viewing stored data
 @app.get("/dashboard")
 def dashboard(db: Session = Depends(get_db)):
     users = db.query(User).all()
