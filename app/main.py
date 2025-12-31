@@ -15,13 +15,13 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# AI Configuration
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-
+# --- AI Configuration ---
 # FIXED: Explicit model path to resolve the 404/NotFound error from your logs
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 ai_model = genai.GenerativeModel('models/gemini-1.5-flash')
 
-# Database Setup
+# --- Database Setup ---
+# Handles Render's postgres:// vs postgresql:// requirement
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -46,7 +46,8 @@ def get_db():
 
 app = FastAPI()
 
-# UNIVERSAL CORS FIX: Allows connection from any origin to stop the browser block
+# --- UNIVERSAL CORS FIX ---
+# Allows connection from any origin to stop the browser block once and for all
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -55,6 +56,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Verification Route ---
+# Use this to check if the backend is LIVE at https://cosmic-backend-api.onrender.com/
+@app.get("/")
+def health_check():
+    return {"status": "online", "message": "Cosmic Backend is LIVE and CORS is ACTIVE"}
+
 async def analyze_palm_ai(image_bytes):
     try:
         img = Image.open(io.BytesIO(image_bytes))
@@ -62,9 +69,9 @@ async def analyze_palm_ai(image_bytes):
         response = ai_model.generate_content([prompt, img])
         return response.text
     except Exception as e:
-        # Prevents 500 error if AI fails
+        # Prevents 500 Internal Server Error if AI fails
         print(f"AI Analysis Error: {e}")
-        return "Your palm suggests a unique destiny filled with cosmic potential."
+        return "Your palm suggests a unique destiny filled with cosmic potential and mystery."
 
 @app.post("/signup-full")
 async def signup(
@@ -76,6 +83,7 @@ async def signup(
 ):
     clean_email = email.strip().lower()
     
+    # Check if user exists
     if db.query(User).filter(User.email == clean_email).first():
         return {"message": "User exists"}
 
@@ -83,15 +91,20 @@ async def signup(
     photo_data = await photos[0].read()
     reading = await analyze_palm_ai(photo_data)
     
-    new_user = User(
-        name=name, 
-        email=clean_email, 
-        birthday=datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date(),
-        palm_analysis=reading
-    )
-    db.add(new_user)
-    db.commit() # Save to PostgreSQL
-    return {"message": "Success"}
+    try:
+        new_user = User(
+            name=name, 
+            email=clean_email, 
+            birthday=datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date(),
+            palm_analysis=reading
+        )
+        db.add(new_user)
+        db.commit() # Save to PostgreSQL
+        return {"message": "Success"}
+    except Exception as e:
+        db.rollback()
+        print(f"Database Error: {e}")
+        raise HTTPException(status_code=500, detail="Database save failed")
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
