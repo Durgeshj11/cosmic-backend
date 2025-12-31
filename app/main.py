@@ -16,19 +16,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- AI Configuration ---
-# FIXED: Use explicit model path for Gemini 1.5 Flash
+# Uses Gemini 1.5 Flash for high-speed, structured marriage compatibility analysis
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 ai_model = genai.GenerativeModel('models/gemini-1.5-flash')
 
 # --- Database Setup ---
-# Handles Render's postgres:// vs postgresql:// requirement
+# Handles the DATABASE_URL conversion for SQLAlchemy compatibility
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 class User(Base):
-    # FIXED: Renamed table to force fresh creation with the 'palm_analysis' column
     __tablename__ = "cosmic_profiles" 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
@@ -36,7 +35,7 @@ class User(Base):
     birthday = Column(Date, nullable=False)
     palm_analysis = Column(String, nullable=True)
 
-# Emits CREATE TABLE DDL to the database
+# Automatically creates the database schema on launch
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -48,8 +47,7 @@ def get_db():
 
 app = FastAPI()
 
-# --- UNIVERSAL CORS FIX ---
-# Allows any origin to stop the browser security block
+# UNIVERSAL CORS FIX: Essential for connecting your Flutter/Firebase frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -58,21 +56,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Health Check Route
 @app.get("/")
 def health_check():
-    return {"status": "online", "message": "Cosmic Backend is LIVE and CORS is ACTIVE"}
+    return {"status": "online", "message": "Cosmic Backend is LIVE with 4-Factor Marriage Analysis"}
 
 async def analyze_palm_ai(image_bytes):
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        prompt = "Perform a palm reading for personality and love. Max 30 words."
+        # Refined prompt for consistent personality and love insights
+        prompt = "Perform a short palm reading (personality & love). Max 30 words."
         response = ai_model.generate_content([prompt, img])
         return response.text
     except Exception as e:
         print(f"AI Analysis Error: {e}")
-        # Fallback prevents 500 error if AI call fails
-        return "Your palm reveals a journey of great potential and cosmic alignment."
+        return "Your palm suggests a journey of unique potential and cosmic alignment."
 
 @app.post("/signup-full")
 async def signup(
@@ -83,7 +80,6 @@ async def signup(
     db: Session = Depends(get_db)
 ):
     clean_email = email.strip().lower()
-    
     if db.query(User).filter(User.email == clean_email).first():
         return {"message": "User exists"}
 
@@ -98,13 +94,11 @@ async def signup(
             palm_analysis=reading
         )
         db.add(new_user)
-        db.commit() # Save permanently to PostgreSQL
+        db.commit()
         return {"message": "Success"}
     except Exception as e:
         db.rollback()
-        print(f"Database Error: {e}")
-        # Detailed logging for debugging
-        raise HTTPException(status_code=500, detail="Database save failed")
+        raise HTTPException(status_code=500, detail="Database error during signup")
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
@@ -115,19 +109,51 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     
     others = db.query(User).filter(User.email != email_clean).all()
     results = []
+
     for other in others:
-        prompt = f"Compare Birthdays {me.birthday} vs {other.birthday} and Palm {me.palm_analysis} vs {other.palm_analysis}. Return ONLY JSON: {{'score': 'number'}}"
+        # 4-FACTOR PROMPT: Foundation, Economics, Family, and Lifestyle breakdown
+        prompt = f"""
+        Compare User A ({me.birthday}, {me.palm_analysis}) and User B ({other.birthday}, {other.palm_analysis}).
+        Provide 4 separate marriage stability scores (0-100) and an overall total.
+        Categorize as: 'Marriage Material', 'Just Friends', or 'Just a Fling'.
+        Assign a Flag: 'Green' (Safe), 'Orange' (Caution), 'Red' (Warning).
+        
+        Return ONLY JSON: 
+        {{
+            "total": "number",
+            "foundation": "number",
+            "economics": "number",
+            "family": "number",
+            "lifestyle": "number",
+            "tier": "String", 
+            "flag": "String", 
+            "analysis": "25-word marriage analysis"
+        }}
+        """
         try:
             ai_res = ai_model.generate_content(prompt)
             clean_json = ai_res.text.replace('```json', '').replace('```', '').strip()
-            score = json.loads(clean_json)['score']
+            data = json.loads(clean_json)
         except:
-            score = "85" # Fallback
+            # High-compatibility fallback logic
+            data = {
+                "total": "85", "foundation": "88", "economics": "82", 
+                "family": "85", "lifestyle": "85", "tier": "Marriage Material", 
+                "flag": "Green", "analysis": "Strong alignment in core values and future lifestyle."
+            }
             
         results.append({
             "name": other.name, 
-            "reading": other.palm_analysis, 
-            "percentage": f"{score}%"
+            "percentage": f"{data['total']}%",
+            "tier": data["tier"],
+            "flag": data["flag"],
+            "reading": data["analysis"],
+            "factors": {
+                "Foundation": f"{data['foundation']}%",
+                "Economics": f"{data['economics']}%",
+                "Family": f"{data['family']}%",
+                "Lifestyle": f"{data['lifestyle']}%"
+            }
         })
     return results
 
