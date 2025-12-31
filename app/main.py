@@ -15,12 +15,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# AI Configuration
+# --- AI Configuration ---
+# FIXED: Use explicit model path for Gemini 1.5 Flash
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# Explicit model path to resolve 404/NotFound errors
 ai_model = genai.GenerativeModel('models/gemini-1.5-flash')
 
-# Database Setup
+# --- Database Setup ---
 # Handles Render's postgres:// vs postgresql:// requirement
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
 engine = create_engine(DATABASE_URL)
@@ -28,15 +28,15 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 class User(Base):
-    # FIXED: Renamed to 'cosmic_users' to force fresh table creation with new columns
-    __tablename__ = "cosmic_users" 
+    # FIXED: Renamed table to force fresh creation with the 'palm_analysis' column
+    __tablename__ = "cosmic_profiles" 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
     palm_analysis = Column(String, nullable=True)
 
-# This will now create the NEW 'cosmic_users' table on Render
+# Emits CREATE TABLE DDL to the database
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -48,7 +48,8 @@ def get_db():
 
 app = FastAPI()
 
-# UNIVERSAL CORS FIX: Allows connection from any origin
+# --- UNIVERSAL CORS FIX ---
+# Allows any origin to stop the browser security block
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -70,7 +71,7 @@ async def analyze_palm_ai(image_bytes):
         return response.text
     except Exception as e:
         print(f"AI Analysis Error: {e}")
-        # Fallback to prevent 500 errors if AI fails
+        # Fallback prevents 500 error if AI call fails
         return "Your palm reveals a journey of great potential and cosmic alignment."
 
 @app.post("/signup-full")
@@ -83,11 +84,9 @@ async def signup(
 ):
     clean_email = email.strip().lower()
     
-    # Check if user exists in the new table
     if db.query(User).filter(User.email == clean_email).first():
         return {"message": "User exists"}
 
-    # Process photo from bytes
     photo_data = await photos[0].read()
     reading = await analyze_palm_ai(photo_data)
     
@@ -104,6 +103,7 @@ async def signup(
     except Exception as e:
         db.rollback()
         print(f"Database Error: {e}")
+        # Detailed logging for debugging
         raise HTTPException(status_code=500, detail="Database save failed")
 
 @app.get("/feed")
