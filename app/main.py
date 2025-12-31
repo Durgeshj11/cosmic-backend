@@ -15,12 +15,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- AI Configuration ---
-# FIXED: Explicit model path to resolve the 404/NotFound error from your logs
+# AI Configuration
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# Explicit model path to resolve 404/NotFound errors
 ai_model = genai.GenerativeModel('models/gemini-1.5-flash')
 
-# --- Database Setup ---
+# Database Setup
 # Handles Render's postgres:// vs postgresql:// requirement
 DATABASE_URL = os.environ.get("DATABASE_URL").replace("postgres://", "postgresql://", 1)
 engine = create_engine(DATABASE_URL)
@@ -28,13 +28,15 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 class User(Base):
-    __tablename__ = "user"
+    # FIXED: Renamed to 'cosmic_users' to force fresh table creation with new columns
+    __tablename__ = "cosmic_users" 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
     palm_analysis = Column(String, nullable=True)
 
+# This will now create the NEW 'cosmic_users' table on Render
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -46,8 +48,7 @@ def get_db():
 
 app = FastAPI()
 
-# --- UNIVERSAL CORS FIX ---
-# Allows connection from any origin to stop the browser block once and for all
+# UNIVERSAL CORS FIX: Allows connection from any origin
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -56,8 +57,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Verification Route ---
-# Use this to check if the backend is LIVE at https://cosmic-backend-api.onrender.com/
+# Health Check Route
 @app.get("/")
 def health_check():
     return {"status": "online", "message": "Cosmic Backend is LIVE and CORS is ACTIVE"}
@@ -69,9 +69,9 @@ async def analyze_palm_ai(image_bytes):
         response = ai_model.generate_content([prompt, img])
         return response.text
     except Exception as e:
-        # Prevents 500 Internal Server Error if AI fails
         print(f"AI Analysis Error: {e}")
-        return "Your palm suggests a unique destiny filled with cosmic potential and mystery."
+        # Fallback to prevent 500 errors if AI fails
+        return "Your palm reveals a journey of great potential and cosmic alignment."
 
 @app.post("/signup-full")
 async def signup(
@@ -83,11 +83,11 @@ async def signup(
 ):
     clean_email = email.strip().lower()
     
-    # Check if user exists
+    # Check if user exists in the new table
     if db.query(User).filter(User.email == clean_email).first():
         return {"message": "User exists"}
 
-    # Process image bytes
+    # Process photo from bytes
     photo_data = await photos[0].read()
     reading = await analyze_palm_ai(photo_data)
     
@@ -99,7 +99,7 @@ async def signup(
             palm_analysis=reading
         )
         db.add(new_user)
-        db.commit() # Save to PostgreSQL
+        db.commit() # Save permanently to PostgreSQL
         return {"message": "Success"}
     except Exception as e:
         db.rollback()
