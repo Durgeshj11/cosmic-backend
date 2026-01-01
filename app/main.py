@@ -19,7 +19,8 @@ load_dotenv()
 
 # --- AI Configuration ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-ai_model = genai.GenerativeModel('models/gemini-1.5-flash')
+# FIXED: Removed 'models/' prefix which caused the 404 error in logs
+ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -38,7 +39,7 @@ class User(Base):
     birthday = Column(Date, nullable=False)
     palm_analysis = Column(String, nullable=True)
 
-# Create tables
+# Create tables on launch
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -50,7 +51,7 @@ def get_db():
 
 app = FastAPI()
 
-# UNIVERSAL CORS FIX
+# UNIVERSAL CORS FIX: Vital for Flutter Web connection
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -66,7 +67,7 @@ def health_check():
 async def analyze_palm_ai(image_bytes):
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        prompt = "Perform a short palm reading (personality & love). Max 30 words."
+        prompt = "Perform a short palm reading (personality & love traits). Max 30 words."
         response = ai_model.generate_content([prompt, img])
         return response.text
     except Exception as e:
@@ -89,10 +90,13 @@ async def signup(
     reading = await analyze_palm_ai(photo_data)
     
     try:
+        # Standardize date format from Flutter
+        date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
+        
         new_user = User(
             name=name, 
             email=clean_email, 
-            birthday=datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date(),
+            birthday=date_obj,
             palm_analysis=reading
         )
         db.add(new_user)
@@ -100,6 +104,7 @@ async def signup(
         return {"message": "Success"}
     except Exception as e:
         db.rollback()
+        print(f"Signup Error: {e}")
         raise HTTPException(status_code=500, detail="Database error during signup")
 
 @app.get("/feed")
@@ -113,11 +118,12 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     results = []
 
     for other in others:
-        # STRONGER PROMPT: Prevents Gemini from adding conversational text
+        # HARDENED PROMPT: Forces AI to return ONLY raw JSON
         prompt = f"""
-        Return ONLY a JSON object. No markdown. No backticks.
+        Return ONLY a JSON object. No intro text, no markdown, no backticks.
         Compare User A (Born: {me.birthday}, Palm: {me.palm_analysis}) and User B (Born: {other.birthday}, Palm: {other.palm_analysis}).
-        Output Format:
+        
+        JSON Structure:
         {{
             "total": "random integer 65-98",
             "foundation": "random integer 60-95",
@@ -131,19 +137,21 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         """
         try:
             ai_res = ai_model.generate_content(prompt)
+            # Remove any possible markdown noise
             clean_json = ai_res.text.replace('```json', '').replace('```', '').strip()
             data = json.loads(clean_json)
-        except Exception:
-            # DYNAMIC FALLBACK: If AI fails, we still provide unique scores
+        except Exception as e:
+            print(f"JSON Parse Error: {e}. Using dynamic fallback.")
+            # DYNAMIC FALLBACK: Ensures scores are NEVER 85% for everyone
             data = {
-                "total": str(random.randint(68, 92)),
-                "foundation": str(random.randint(65, 90)),
-                "economics": str(random.randint(65, 90)),
-                "family": str(random.randint(65, 90)),
-                "lifestyle": str(random.randint(65, 90)),
+                "total": str(random.randint(68, 94)),
+                "foundation": str(random.randint(65, 91)),
+                "economics": str(random.randint(65, 91)),
+                "family": str(random.randint(65, 91)),
+                "lifestyle": str(random.randint(65, 91)),
                 "tier": "Strong Match",
                 "flag": "Green",
-                "analysis": "Your cosmic energies show a natural and balanced alignment."
+                "analysis": "Cosmic alignment detected based on your birth dates and palm energy."
             }
             
         results.append({
