@@ -43,11 +43,13 @@ class User(Base):
     palm_analysis = Column(String, nullable=True)
     
     # --- Wisdom Layers (Multi-Tradition Preferences) ---
+    # As per image_472971.png logic
     astro_pref = Column(String, default="Western")   # Vedic vs. Western vs. Chinese
     num_pref = Column(String, default="Pythagorean") # Pythagorean vs. Chaldean
     palm_pref = Column(String, default="Western")    # Western vs. Vedic
     
     # --- Accuracy Data (Layered Seeding) ---
+    # As per image_47f809.png logic
     birth_time = Column(String, nullable=True)      
     birth_location = Column(String, nullable=True)  
     full_legal_name = Column(String, nullable=True) 
@@ -96,11 +98,11 @@ async def analyze_palm_ai(image_bytes, palm_pref):
     """AI analysis adjusted by Western or Vedic preference."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        prompt = f"Perform a detailed {palm_pref} palm reading focusing on major lines and cosmic signs. Max 40 words."
+        prompt = f"Perform a detailed {palm_pref} palm reading focusing on lines and cosmic symbols. Max 40 words."
         response = ai_model.generate_content([prompt, img])
         return response.text
     except Exception as e:
-        return "Your palm reveals a unique potential and alignment with the cosmic path."
+        return "Your palm reveals a journey of unique potential and cosmic alignment."
 
 @app.post("/signup-full")
 async def signup(
@@ -161,7 +163,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     results = []
 
     for other in others:
-        # Deterministic Seeding logic
+        # Layered Seeding logic
         base_seeds = "".join(sorted([str(me.birthday), str(other.birthday)]))
         pref_seeds = me.astro_pref + me.num_pref + me.palm_pref
         acc_data = (me.birth_time or "") + (me.birth_location or "") + (me.full_legal_name or "")
@@ -172,9 +174,12 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         tot = random.randint(65, 98)
         
         # Determine Label Quality
-        if me.birth_time and me.birth_location and me.full_legal_name: quality = "Ultimate Accuracy"
-        elif me.birth_time or me.full_legal_name: quality = "High Accuracy"
-        else: quality = "Base Accuracy"
+        if me.birth_time and me.birth_location and me.full_legal_name: 
+            quality = "Ultimate Accuracy"
+        elif me.birth_time or me.full_legal_name: 
+            quality = "High Accuracy"
+        else: 
+            quality = "Base Accuracy"
 
         # Match Tiering
         if tot >= 90: tier = "Marriage Material"
