@@ -2,25 +2,28 @@ import os
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
+# Load local .env if testing locally, otherwise it uses Render's Env Var
 load_dotenv()
 
-# Standardize the database URL for Render
+# Get the URL from your Render environment settings
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
+def wipe_database():
+    if not DATABASE_URL:
+        print("Error: DATABASE_URL not found!")
+        return
 
-def reset_database():
     try:
-        with engine.connect() as conn:
-            print("Connecting to database...")
-            # Clears the tables and resets IDs back to 1
-            conn.execute(text("TRUNCATE TABLE \"user\", \"messages\" RESTART IDENTITY CASCADE;"))
-            conn.commit()
-            print("SUCCESS: All old records cleared. Database is fresh.")
+        engine = create_engine(DATABASE_URL)
+        with engine.connect() as connection:
+            # This command empties the table completely
+            connection.execute(text("TRUNCATE TABLE cosmic_profiles RESTART IDENTITY CASCADE;"))
+            connection.commit()
+            print("Successfully wiped all old 85% data from the cloud!")
     except Exception as e:
-        print(f"ERROR: Could not clear database. {e}")
+        print(f"Cleanup Error: {e}")
 
 if __name__ == "__main__":
-    reset_database()
+    wipe_database()

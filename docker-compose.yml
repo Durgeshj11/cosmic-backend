@@ -1,6 +1,5 @@
-version: '3.8'
-
 services:
+  # --- Database Service ---
   db:
     image: postgres:15-alpine
     restart: always
@@ -18,6 +17,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # --- FastAPI Backend Service ---
+  backend:
+    build: .
+    container_name: cosmic_backend
+    restart: always
+    # CRITICAL: This explicitly loads the .env from the root backend directory
+    env_file:
+      - .env
+    environment:
+      # Internal connection for Docker network
+      - DATABASE_URL=postgresql://cosmic_admin:secure_password_123@db:5432/cosmic_db
+      # Pulls the live key from .env into the container's environment variables
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      # Syncs the root folder to /app inside the container
+      - .:/app
 
 volumes:
   postgres_data:
