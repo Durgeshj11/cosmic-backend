@@ -2,6 +2,7 @@ import os
 import json
 import io
 import random
+import hashlib  # Used for the deterministic "Shared Destiny" fingerprint
 from datetime import datetime
 from typing import List
 
@@ -19,6 +20,7 @@ load_dotenv()
 
 # --- AI Configuration ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# Using 1.5-flash for speed and structural visual precision
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- Database Setup ---
@@ -38,7 +40,7 @@ class User(Base):
     birthday = Column(Date, nullable=False)
     palm_analysis = Column(String, nullable=True)
 
-# Create tables on launch
+# Initialize database tables
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -63,22 +65,23 @@ app.add_middleware(
 def health_check():
     return {"status": "online", "message": "Cosmic Backend is LIVE"}
 
-# --- NEW: NUKE ROUTE TO CLEAR OLD DATA ---
+# --- UTILITY: RESET DATABASE ---
 @app.get("/nuke-database")
 def nuke_database(db: Session = Depends(get_db)):
-    """Visit this URL in your browser to clear all old records once."""
+    """Wipes all data to clear old records and reset IDs."""
     try:
-        # Clears all old rows and resets ID counter to 1
         db.execute(text("TRUNCATE TABLE cosmic_profiles RESTART IDENTITY CASCADE;"))
         db.commit()
-        return {"status": "success", "message": "Database wiped clean. Old records are gone!"}
+        return {"status": "success", "message": "Database wiped clean. Start fresh!"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 async def analyze_palm_ai(image_bytes):
+    """Replicates a healthy human eye by reading structural palm data."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        prompt = "Perform a short palm reading (personality & love traits). Max 30 words."
+        # Prompt designed to extract stable biological features for long-term consistency
+        prompt = "Perform a detailed palm reading (Life, Heart, and Head lines). Max 40 words."
         response = ai_model.generate_content([prompt, img])
         return response.text
     except Exception as e:
@@ -94,14 +97,24 @@ async def signup(
     db: Session = Depends(get_db)
 ):
     clean_email = email.strip().lower()
-    if db.query(User).filter(User.email == clean_email).first():
-        return {"message": "User exists"}
+    
+    # Check if user exists to allow for 'Evolution' (updating palm scan)
+    existing_user = db.query(User).filter(User.email == clean_email).first()
 
     photo_data = await photos[0].read()
     reading = await analyze_palm_ai(photo_data)
     
     try:
         date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
+        
+        if existing_user:
+            # Evolution Support: Update existing profile with new biological data
+            existing_user.name = name
+            existing_user.palm_analysis = reading
+            db.commit()
+            return {"message": "Success - Profile Evolved"}
+
+        # Register fresh user
         new_user = User(
             name=name, 
             email=clean_email, 
@@ -113,7 +126,6 @@ async def signup(
         return {"message": "Success"}
     except Exception as e:
         db.rollback()
-        print(f"Signup Error: {e}")
         raise HTTPException(status_code=500, detail="Database error during signup")
 
 @app.get("/feed")
@@ -127,63 +139,54 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     results = []
 
     for other in others:
-        # UPDATED PROMPT: Specific Logic for "Marriage Material" Tiers
-        prompt = f"""
-        Return ONLY a JSON object. No markdown, no backticks.
-        Compare User A (Born: {me.birthday}, Palm: {me.palm_analysis}) and User B (Born: {other.birthday}, Palm: {other.palm_analysis}).
+        # --- THE DETERMINISTIC COSMIC FINGERPRINT ---
+        # 1. SYMMETRIC MATCHING: Sort emails so A matching B is identical to B matching A
+        identity_part = "".join(sorted([me.email, other.email]))
         
-        Tiering Logic:
-        - If 'total' compatibility is >= 90: "Marriage Material"
-        - If 'total' is 75-89: "Strong Match"
-        - If 'total' is below 75: "Potential Match"
+        # 2. EVOLUTION SUPPORT: Any change in palm text resets the seed for BOTH
+        evolution_part = (me.palm_analysis or "p") + (other.palm_analysis or "p")
+        
+        # 3. DETERMINISTIC SEED: MD5 hashing turns living data into a fixed number
+        seed_hash = hashlib.md5((identity_part + evolution_part).encode()).hexdigest()
+        random.seed(int(seed_hash, 16)) 
+        
+        # 4. Generate locked, repeatable scores based on the shared seed
+        tot = random.randint(65, 98)
+        fnd = random.randint(60, 95)
+        eco = random.randint(60, 95)
+        fam = random.randint(60, 95)
+        lst = random.randint(60, 95)
 
-        JSON Structure:
-        {{
-            "total": "integer 65-98",
-            "foundation": "integer 60-95",
-            "economics": "integer 60-95",
-            "family": "integer 60-95",
-            "lifestyle": "integer 60-95",
-            "tier": "String based on logic",
-            "flag": "Green",
-            "analysis": "A short 20-word specific compatibility analysis."
-        }}
-        """
-        try:
-            ai_res = ai_model.generate_content(prompt)
-            clean_json = ai_res.text.replace('```json', '').replace('```', '').strip()
-            data = json.loads(clean_json)
-        except Exception:
-            # DYNAMIC FALLBACK: Randomized so scores are never identical
-            tot = random.randint(70, 96)
-            data = {
-                "total": str(tot),
-                "foundation": str(random.randint(65, 95)),
-                "economics": str(random.randint(65, 95)),
-                "family": str(random.randint(65, 95)),
-                "lifestyle": str(random.randint(65, 95)),
-                "tier": "Marriage Material" if tot >= 90 else "Strong Match",
-                "flag": "Green",
-                "analysis": "Cosmic energies suggest a unique and balanced soulmate connection."
-            }
-            
+        # Unified Tiering Logic
+        if tot >= 90:
+            tier = "Marriage Material"
+        elif tot >= 75:
+            tier = "Strong Match"
+        else:
+            tier = "Potential Match"
+
         results.append({
             "name": other.name, 
-            "percentage": f"{data['total']}%",
-            "tier": data["tier"],
-            "flag": data["flag"],
-            "reading": data["analysis"],
+            "percentage": f"{tot}%",
+            "tier": tier,
+            "flag": "Green",
+            "reading": f"Cosmic connection between {me.name} and {other.name} based on biological alignment.",
             "factors": {
-                "Foundation": f"{data['foundation']}%",
-                "Economics": f"{data['economics']}%",
-                "Family": f"{data['family']}%",
-                "Lifestyle": f"{data['lifestyle']}%"
+                "Foundation": f"{fnd}%",
+                "Economics": f"{eco}%",
+                "Family": f"{fam}%",
+                "Lifestyle": f"{lst}%"
             }
         })
+        
+        # Reset seed to avoid interference with the next person in the feed
+        random.seed(None)
+        
     return results
 
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):
+    """Permanently erases own profile and data."""
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if user:
         db.delete(user)
