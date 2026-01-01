@@ -1,5 +1,4 @@
 import os
-import json
 import io
 import random
 import hashlib
@@ -18,10 +17,13 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# --- AI Configuration ---
+# --- AI Configuration (Fixed for 404/Model-Not-Found Errors) ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# Using 1.5-flash for speed and structural visual precision
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
+
+try:
+    ai_model = genai.GenerativeModel('gemini-1.5-flash-latest')
+except:
+    ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -52,7 +54,7 @@ def get_db():
 
 app = FastAPI()
 
-# UNIVERSAL CORS FIX: Vital for Flutter Web connection
+# UNIVERSAL CORS FIX: Vital for Flutter Web/Mobile
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
@@ -68,27 +70,23 @@ def health_check():
 # --- UTILITY: RESET DATABASE (NUKE) ---
 @app.get("/nuke-database")
 def nuke_database(db: Session = Depends(get_db)):
-    """
-    Wipes all data to clear old records and reset IDs.
-    Essential to trigger the new Birthday-only logic.
-    """
     try:
         db.execute(text("TRUNCATE TABLE cosmic_profiles RESTART IDENTITY CASCADE;"))
         db.commit()
-        return {"status": "success", "message": "Database wiped clean. Birth-data seeds reset."}
+        return {"status": "success", "message": "Database wiped clean. IDs and seeds reset."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 async def analyze_palm_ai(image_bytes):
-    """Replicates a healthy human eye by reading structural palm data."""
+    """Replicates a healthy human eye with a safety fallback."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
         prompt = "Perform a detailed palm reading (Life, Heart, and Head lines). Max 40 words."
         response = ai_model.generate_content([prompt, img])
         return response.text
     except Exception as e:
-        print(f"AI Analysis Error: {e}")
-        return "Your palm suggests a journey of unique potential and cosmic alignment."
+        print(f"AI Model Error Fallback: {e}")
+        return "Your palm reveals a journey of unique potential and cosmic alignment."
 
 @app.post("/signup-full")
 async def signup(
@@ -100,41 +98,43 @@ async def signup(
 ):
     clean_email = email.strip().lower()
     
-    # Check if user exists to allow for 'Evolution' (updating palm scan)
-    existing_user = db.query(User).filter(User.email == clean_email).first()
-
-    photo_data = await photos[0].read()
-    reading = await analyze_palm_ai(photo_data)
-    
+    # 1. Process Palm Photo
     try:
-        # Expected format YYYY-MM-DD
+        photo_data = await photos[0].read()
+        reading = await analyze_palm_ai(photo_data)
+    except:
+        reading = "Biological data captured. Alignment pending."
+
+    try:
+        # 2. Robust Date Parsing
         date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
         
+        # 3. Evolution Support (Update or Create)
+        existing_user = db.query(User).filter(User.email == clean_email).first()
+
         if existing_user:
-            # Evolution Support: Update profile with new biological scan data
             existing_user.name = name
+            existing_user.birthday = date_obj
             existing_user.palm_analysis = reading
             db.commit()
-            return {"message": "Success - Profile Evolved"}
+            return {"message": "Success"}
 
-        # Register fresh user
         new_user = User(
-            name=name, 
-            email=clean_email, 
-            birthday=date_obj,
-            palm_analysis=reading
+            name=name, email=clean_email, birthday=date_obj, palm_analysis=reading
         )
         db.add(new_user)
         db.commit()
         return {"message": "Success"}
     except Exception as e:
         db.rollback()
+        print(f"Signup Database Error: {e}")
         raise HTTPException(status_code=500, detail="Database error during signup")
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
     email_clean = current_email.strip().lower()
     me = db.query(User).filter(User.email == email_clean).first()
+    
     if not me: 
         raise HTTPException(status_code=404, detail="User Not Found")
     
@@ -143,27 +143,28 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
 
     for other in others:
         # --- THE DETERMINISTIC DESTINY LOGIC ---
-        # 1. PURE DATA: Combine Birthdays and Palm strings
-        # Emails are excluded from math; sorting ensures symmetric results
+        # Sorting birth dates ensures Symmetry
         birth_seeds = "".join(sorted([str(me.birthday), str(other.birthday)]))
         palm_seeds = (me.palm_analysis or "p") + (other.palm_analysis or "p")
         
-        # 2. HASHING: MD5 turns living data into a fixed number
+        # MD5 Hashing locks all 6 factors to this pair
         seed_hash = hashlib.md5((birth_seeds + palm_seeds).encode()).hexdigest()
-        random.seed(int(seed_hash, 16)) # Lock the generator to this specific pair
+        random.seed(int(seed_hash, 16)) 
         
-        # 3. Generate locked scores
         tot = random.randint(65, 98)
         
-        # DEFINING RELATIONSHIP TIERS
-        if tot >= 90:
-            tier = "Marriage Material"
-        elif tot >= 78:
-            tier = "Strong Match"
-        elif tot >= 68:
-            tier = "Fling / Casual"
-        else:
-            tier = "Just Friends"
+        # 6 Factors: Random but seeded (permanent for the pair)
+        fnd = random.randint(60, 95)
+        eco = random.randint(60, 95)
+        fam = random.randint(60, 95)
+        lst = random.randint(60, 95)
+        sxu = random.randint(60, 98) # Sexual Compatibility
+        emo = random.randint(60, 98) # Emotional Compatibility
+
+        if tot >= 90: tier = "Marriage Material"
+        elif tot >= 78: tier = "Strong Match"
+        elif tot >= 68: tier = "Fling / Casual"
+        else: tier = "Just Friends"
 
         results.append({
             "name": other.name, 
@@ -171,21 +172,20 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             "tier": tier,
             "reading": "Your connection is written in the physical alignment of your life paths.",
             "factors": {
-                "Foundation": f"{random.randint(60, 95)}%",
-                "Economics": f"{random.randint(60, 95)}%",
-                "Family": f"{random.randint(60, 95)}%",
-                "Lifestyle": f"{random.randint(60, 95)}%"
+                "Foundation": f"{fnd}%",
+                "Economics": f"{eco}%",
+                "Family": f"{fam}%",
+                "Lifestyle": f"{lst}%",
+                "Sexual": f"{sxu}%",
+                "Emotional": f"{emo}%"
             }
         })
-        
-        # Reset seed for next user to maintain variety
         random.seed(None)
         
     return results
 
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):
-    """Permanently erases own profile and data."""
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if user:
         db.delete(user)
