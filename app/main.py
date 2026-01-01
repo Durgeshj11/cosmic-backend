@@ -7,7 +7,7 @@ from typing import List
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Date
+from sqlalchemy import create_engine, Column, Integer, String, Date, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import google.generativeai as genai
@@ -19,7 +19,6 @@ load_dotenv()
 
 # --- AI Configuration ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# FIXED: Removed 'models/' prefix which caused the 404 error in logs
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # --- Database Setup ---
@@ -64,6 +63,18 @@ app.add_middleware(
 def health_check():
     return {"status": "online", "message": "Cosmic Backend is LIVE"}
 
+# --- NEW: NUKE ROUTE TO CLEAR OLD DATA ---
+@app.get("/nuke-database")
+def nuke_database(db: Session = Depends(get_db)):
+    """Visit this URL in your browser to clear all old records once."""
+    try:
+        # Clears all old rows and resets ID counter to 1
+        db.execute(text("TRUNCATE TABLE cosmic_profiles RESTART IDENTITY CASCADE;"))
+        db.commit()
+        return {"status": "success", "message": "Database wiped clean. Old records are gone!"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 async def analyze_palm_ai(image_bytes):
     try:
         img = Image.open(io.BytesIO(image_bytes))
@@ -90,9 +101,7 @@ async def signup(
     reading = await analyze_palm_ai(photo_data)
     
     try:
-        # Standardize date format from Flutter
         date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
-        
         new_user = User(
             name=name, 
             email=clean_email, 
@@ -118,40 +127,44 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     results = []
 
     for other in others:
-        # HARDENED PROMPT: Forces AI to return ONLY raw JSON
+        # UPDATED PROMPT: Specific Logic for "Marriage Material" Tiers
         prompt = f"""
-        Return ONLY a JSON object. No intro text, no markdown, no backticks.
+        Return ONLY a JSON object. No markdown, no backticks.
         Compare User A (Born: {me.birthday}, Palm: {me.palm_analysis}) and User B (Born: {other.birthday}, Palm: {other.palm_analysis}).
         
+        Tiering Logic:
+        - If 'total' compatibility is >= 90: "Marriage Material"
+        - If 'total' is 75-89: "Strong Match"
+        - If 'total' is below 75: "Potential Match"
+
         JSON Structure:
         {{
-            "total": "random integer 65-98",
-            "foundation": "random integer 60-95",
-            "economics": "random integer 60-95",
-            "family": "random integer 60-95",
-            "lifestyle": "random integer 60-95",
-            "tier": "Marriage Material",
+            "total": "integer 65-98",
+            "foundation": "integer 60-95",
+            "economics": "integer 60-95",
+            "family": "integer 60-95",
+            "lifestyle": "integer 60-95",
+            "tier": "String based on logic",
             "flag": "Green",
             "analysis": "A short 20-word specific compatibility analysis."
         }}
         """
         try:
             ai_res = ai_model.generate_content(prompt)
-            # Remove any possible markdown noise
             clean_json = ai_res.text.replace('```json', '').replace('```', '').strip()
             data = json.loads(clean_json)
-        except Exception as e:
-            print(f"JSON Parse Error: {e}. Using dynamic fallback.")
-            # DYNAMIC FALLBACK: Ensures scores are NEVER 85% for everyone
+        except Exception:
+            # DYNAMIC FALLBACK: Randomized so scores are never identical
+            tot = random.randint(70, 96)
             data = {
-                "total": str(random.randint(68, 94)),
-                "foundation": str(random.randint(65, 91)),
-                "economics": str(random.randint(65, 91)),
-                "family": str(random.randint(65, 91)),
-                "lifestyle": str(random.randint(65, 91)),
-                "tier": "Strong Match",
+                "total": str(tot),
+                "foundation": str(random.randint(65, 95)),
+                "economics": str(random.randint(65, 95)),
+                "family": str(random.randint(65, 95)),
+                "lifestyle": str(random.randint(65, 95)),
+                "tier": "Marriage Material" if tot >= 90 else "Strong Match",
                 "flag": "Green",
-                "analysis": "Cosmic alignment detected based on your birth dates and palm energy."
+                "analysis": "Cosmic energies suggest a unique and balanced soulmate connection."
             }
             
         results.append({
