@@ -42,14 +42,12 @@ class User(Base):
     birthday = Column(Date, nullable=False)
     palm_analysis = Column(String, nullable=True)
     
-    # --- Multi-Tradition Preferences (Wisdom Layers) ---
-    # As per image_472971.png logic
+    # --- Wisdom Layers (Multi-Tradition Preferences) ---
     astro_pref = Column(String, default="Western")   # Vedic vs. Western vs. Chinese
     num_pref = Column(String, default="Pythagorean") # Pythagorean vs. Chaldean
     palm_pref = Column(String, default="Western")    # Western vs. Vedic
     
-    # --- Layered Accuracy Data ---
-    # As per image_47f809.png logic
+    # --- Accuracy Data (Layered Seeding) ---
     birth_time = Column(String, nullable=True)      
     birth_location = Column(String, nullable=True)  
     full_legal_name = Column(String, nullable=True) 
@@ -79,26 +77,30 @@ app.add_middleware(
 def health_check():
     return {"status": "online", "message": "Cosmic Backend is LIVE"}
 
-# --- UTILITY: RESET DATABASE (NUKE) ---
+# --- UTILITY: DEEP RESET (NUKE) ---
 @app.get("/nuke-database")
 def nuke_database(db: Session = Depends(get_db)):
+    """Wipes table AND recreates it with new schema columns."""
     try:
-        db.execute(text("TRUNCATE TABLE cosmic_profiles RESTART IDENTITY CASCADE;"))
+        # Drop table ensures columns like astro_pref are actually added
+        db.execute(text("DROP TABLE IF EXISTS cosmic_profiles CASCADE;"))
         db.commit()
-        return {"status": "success", "message": "Database wiped clean. Schema reset."}
+        # Force recreation of the table based on the User class above
+        Base.metadata.create_all(bind=engine)
+        return {"status": "success", "message": "Table dropped and recreated with full multi-tradition schema."}
     except Exception as e:
+        db.rollback()
         return {"status": "error", "message": str(e)}
 
 async def analyze_palm_ai(image_bytes, palm_pref):
     """AI analysis adjusted by Western or Vedic preference."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        # Logic: Focus AI on lines (West) or symbols (Vedic)
-        prompt = f"Perform a detailed {palm_pref} palm reading focusing on lines and cosmic symbols. Max 40 words."
+        prompt = f"Perform a detailed {palm_pref} palm reading focusing on major lines and cosmic signs. Max 40 words."
         response = ai_model.generate_content([prompt, img])
         return response.text
     except Exception as e:
-        return "Your palm reveals a journey of unique potential and cosmic alignment."
+        return "Your palm reveals a unique potential and alignment with the cosmic path."
 
 @app.post("/signup-full")
 async def signup(
@@ -116,20 +118,19 @@ async def signup(
 ):
     clean_email = email.strip().lower()
     
-    # 1. Process Palm Photo with preference
+    # 1. AI Palm Reading
     try:
         photo_data = await photos[0].read()
         reading = await analyze_palm_ai(photo_data, palm_pref)
     except:
-        reading = "Biological data captured. Alignment pending."
+        reading = "Biological data captured. Cosmic alignment pending."
 
     try:
-        # 2. Robust Date Parsing
+        # 2. Date Parsing
         date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
         
-        # 3. Evolution Support (Update or Create)
+        # 3. Create or Update User
         user = db.query(User).filter(User.email == clean_email).first()
-
         if not user:
             user = User(email=clean_email)
             db.add(user)
@@ -154,58 +155,43 @@ async def signup(
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
     email_clean = current_email.strip().lower()
     me = db.query(User).filter(User.email == email_clean).first()
-    
-    if not me: 
-        raise HTTPException(status_code=404, detail="User Not Found")
+    if not me: raise HTTPException(status_code=404, detail="User Not Found")
     
     others = db.query(User).filter(User.email != email_clean).all()
     results = []
 
     for other in others:
-        # --- LAYERED ACCURACY & DETERMINISTIC SEEDING ---
-        # Base Data
+        # Deterministic Seeding logic
         base_seeds = "".join(sorted([str(me.birthday), str(other.birthday)]))
-        palm_seeds = (me.palm_analysis or "p") + (other.palm_analysis or "p")
-        
-        # Wisdom Layers
         pref_seeds = me.astro_pref + me.num_pref + me.palm_pref
+        acc_data = (me.birth_time or "") + (me.birth_location or "") + (me.full_legal_name or "")
         
-        # Accuracy Data
-        acc_data = (me.birth_time or "") + (me.birth_location or "") + (me.full_legal_name or "") + \
-                   (other.birth_time or "") + (other.birth_location or "") + (other.full_legal_name or "")
-        
-        # Generate Seed Hash
-        seed_hash = hashlib.md5((base_seeds + palm_seeds + pref_seeds + acc_data).encode()).hexdigest()
+        seed_hash = hashlib.md5((base_seeds + pref_seeds + acc_data).encode()).hexdigest()
         random.seed(int(seed_hash, 16)) 
         
         tot = random.randint(65, 98)
         
-        # Determine Result Quality
-        if me.birth_time and me.birth_location and me.full_legal_name:
-            quality = "Ultimate Accuracy"
-        elif me.birth_time or me.full_legal_name:
-            quality = "High Accuracy"
-        else:
-            quality = "Base Accuracy"
+        # Determine Label Quality
+        if me.birth_time and me.birth_location and me.full_legal_name: quality = "Ultimate Accuracy"
+        elif me.birth_time or me.full_legal_name: quality = "High Accuracy"
+        else: quality = "Base Accuracy"
 
-        # Dynamic Factor Naming based on Astrology Preference
-        astro_label = "Zodiac Sync"
-        if me.astro_pref == "Vedic": astro_label = "Karmic Link"
-        elif me.astro_pref == "Chinese": astro_label = "Animal Sign"
-
-        # Match Tier Logic
+        # Match Tiering
         if tot >= 90: tier = "Marriage Material"
         elif tot >= 78: tier = "Strong Match"
         elif tot >= 68: tier = "Fling / Casual"
         else: tier = "Just Friends"
 
-        # 6-Field Report
+        # Dynamic Factor Labeling
+        astro_label = "Zodiac Sync"
+        if me.astro_pref == "Vedic": astro_label = "Karmic Link"
+        elif me.astro_pref == "Chinese": astro_label = "Animal Sign"
+
         results.append({
             "name": other.name, 
             "percentage": f"{tot}%",
             "tier": tier,
             "accuracy_level": quality,
-            "reading": "Your connection is written in the physical alignment of your life paths.",
             "factors": {
                 "Foundation": f"{random.randint(60, 95)}%",
                 "Economics": f"{random.randint(60, 95)}%",
@@ -213,10 +199,10 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
                 "Lifestyle": f"{random.randint(60, 95)}%",
                 "Sexual": f"{random.randint(60, 98)}%",
                 "Emotional": f"{random.randint(60, 98)}%"
-            }
+            },
+            "reading": "Your connection is rooted in the physical and cosmic alignment of your paths."
         })
         random.seed(None)
-        
     return results
 
 @app.delete("/delete-profile")
