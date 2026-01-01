@@ -1,20 +1,23 @@
 # --- Web Server & API Framework ---
+# Core framework for signup and match feed routes
 fastapi==0.110.0
+# High-performance production server for Render deployment
 uvicorn==0.27.1
+# Required for handling multipart form data (Palm Photo + Form fields)
 python-multipart==0.0.9
 
 # --- AI & Image Processing ---
-# Core AI engine for palmistry analysis
+# Core AI engine for Vedic, Western, and Chinese palm analysis
 google-generativeai==0.4.1
-# VITAL: Required to open and process palm photo bytes (analyze_palm_ai)
+# VITAL: Required to process palm photo bytes in the analyze_palm_ai function
 Pillow==10.2.0
 
 # --- Database & Environment ---
-# Manages the 'cosmic_profiles' table and 6-factor data
+# Manages the 'cosmic_profiles' table and preference columns
 sqlalchemy==2.0.28
-# Driver for Render's PostgreSQL database
+# Database driver for connecting to Render's PostgreSQL database
 psycopg2-binary==2.9.9
-# Securely loads your GEMINI_API_KEY
+# Securely loads your GEMINI_API_KEY and DATABASE_URL
 python-dotenv==1.0.1
 
 # --- Performance & Compatibility ---
