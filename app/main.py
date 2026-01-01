@@ -2,7 +2,7 @@ import os
 import json
 import io
 import random
-import hashlib  # Used for the deterministic "Shared Destiny" fingerprint
+import hashlib
 from datetime import datetime
 from typing import List
 
@@ -65,14 +65,17 @@ app.add_middleware(
 def health_check():
     return {"status": "online", "message": "Cosmic Backend is LIVE"}
 
-# --- UTILITY: RESET DATABASE ---
+# --- UTILITY: RESET DATABASE (NUKE) ---
 @app.get("/nuke-database")
 def nuke_database(db: Session = Depends(get_db)):
-    """Wipes all data to clear old records and reset IDs."""
+    """
+    Wipes all data to clear old records and reset IDs.
+    Essential to trigger the new Birthday-only logic.
+    """
     try:
         db.execute(text("TRUNCATE TABLE cosmic_profiles RESTART IDENTITY CASCADE;"))
         db.commit()
-        return {"status": "success", "message": "Database wiped clean. Start fresh!"}
+        return {"status": "success", "message": "Database wiped clean. Birth-data seeds reset."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -80,7 +83,6 @@ async def analyze_palm_ai(image_bytes):
     """Replicates a healthy human eye by reading structural palm data."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        # Prompt designed to extract stable biological features for long-term consistency
         prompt = "Perform a detailed palm reading (Life, Heart, and Head lines). Max 40 words."
         response = ai_model.generate_content([prompt, img])
         return response.text
@@ -105,10 +107,11 @@ async def signup(
     reading = await analyze_palm_ai(photo_data)
     
     try:
+        # Expected format YYYY-MM-DD
         date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
         
         if existing_user:
-            # Evolution Support: Update existing profile with new biological data
+            # Evolution Support: Update profile with new biological scan data
             existing_user.name = name
             existing_user.palm_analysis = reading
             db.commit()
@@ -139,47 +142,43 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     results = []
 
     for other in others:
-        # --- THE DETERMINISTIC COSMIC FINGERPRINT ---
-        # 1. SYMMETRIC MATCHING: Sort emails so A matching B is identical to B matching A
-        identity_part = "".join(sorted([me.email, other.email]))
+        # --- THE DETERMINISTIC DESTINY LOGIC ---
+        # 1. PURE DATA: Combine Birthdays and Palm strings
+        # Emails are excluded from math; sorting ensures symmetric results
+        birth_seeds = "".join(sorted([str(me.birthday), str(other.birthday)]))
+        palm_seeds = (me.palm_analysis or "p") + (other.palm_analysis or "p")
         
-        # 2. EVOLUTION SUPPORT: Any change in palm text resets the seed for BOTH
-        evolution_part = (me.palm_analysis or "p") + (other.palm_analysis or "p")
+        # 2. HASHING: MD5 turns living data into a fixed number
+        seed_hash = hashlib.md5((birth_seeds + palm_seeds).encode()).hexdigest()
+        random.seed(int(seed_hash, 16)) # Lock the generator to this specific pair
         
-        # 3. DETERMINISTIC SEED: MD5 hashing turns living data into a fixed number
-        seed_hash = hashlib.md5((identity_part + evolution_part).encode()).hexdigest()
-        random.seed(int(seed_hash, 16)) 
-        
-        # 4. Generate locked, repeatable scores based on the shared seed
+        # 3. Generate locked scores
         tot = random.randint(65, 98)
-        fnd = random.randint(60, 95)
-        eco = random.randint(60, 95)
-        fam = random.randint(60, 95)
-        lst = random.randint(60, 95)
-
-        # Unified Tiering Logic
+        
+        # DEFINING RELATIONSHIP TIERS
         if tot >= 90:
             tier = "Marriage Material"
-        elif tot >= 75:
+        elif tot >= 78:
             tier = "Strong Match"
+        elif tot >= 68:
+            tier = "Fling / Casual"
         else:
-            tier = "Potential Match"
+            tier = "Just Friends"
 
         results.append({
             "name": other.name, 
             "percentage": f"{tot}%",
             "tier": tier,
-            "flag": "Green",
-            "reading": f"Cosmic connection between {me.name} and {other.name} based on biological alignment.",
+            "reading": "Your connection is written in the physical alignment of your life paths.",
             "factors": {
-                "Foundation": f"{fnd}%",
-                "Economics": f"{eco}%",
-                "Family": f"{fam}%",
-                "Lifestyle": f"{lst}%"
+                "Foundation": f"{random.randint(60, 95)}%",
+                "Economics": f"{random.randint(60, 95)}%",
+                "Family": f"{random.randint(60, 95)}%",
+                "Lifestyle": f"{random.randint(60, 95)}%"
             }
         })
         
-        # Reset seed to avoid interference with the next person in the feed
+        # Reset seed for next user to maintain variety
         random.seed(None)
         
     return results

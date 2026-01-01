@@ -1,8 +1,24 @@
+# --- Web Server & API Framework ---
 fastapi==0.110.0
 uvicorn==0.27.1
-google-generativeai==0.4.1
 python-multipart==0.0.9
-sqlalchemy==2.0.28
-psycopg2-binary==2.9.9
-python-dotenv==1.0.1
+
+# --- AI & Image Processing ---
+# Handles the "Healthy Human Eye" analysis via Gemini
+google-generativeai==0.4.1
+# Processes the biological scans before AI analysis
 Pillow==10.2.0
+
+# --- Database & Environment ---
+# Manages the "Cosmic Profiles" table
+sqlalchemy==2.0.28
+# Required for connecting to the Render PostgreSQL database
+psycopg2-binary==2.9.9
+# Loads your GEMINI_API_KEY securely
+python-dotenv==1.0.1
+
+# --- Standard Utilities ---
+# Ensures high-performance async operations
+anyio==4.3.0
+# Standard type hinting for Python
+typing-extensions==4.10.0
