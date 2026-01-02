@@ -44,10 +44,10 @@ class User(Base):
     palm_analysis = Column(String, nullable=True) 
     
     # --- Tradition Specific Toggles ---
-    astro_pref = Column(String, default="Western")   # Western / Vedic / Chinese
-    num_pref = Column(String, default="Pythagorean") # Pythagorean / Chaldean
-    palm_pref = Column(String, default="Western")    # Western / Vedic
-    method_choice = Column(String, default="The Mix") # Combination Choice
+    astro_pref = Column(String, default="Western")   
+    num_pref = Column(String, default="Pythagorean") 
+    palm_pref = Column(String, default="Western")    
+    method_choice = Column(String, default="The Mix") 
 
     # --- Restored Fields for Accurate Logic ---
     birth_time = Column(String, nullable=True)      
@@ -145,15 +145,15 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     
     # --- 1. CALCULATE INDIVIDUAL FATE (SELF) ---
     # Seed based ONLY on the individual's data for deterministic personal fate
-    self_seed = str(me.birthday) + (me.palm_signature or "SELF")
+    self_seed = str(me.birthday) + (me.palm_signature or "SELF_SEED")
     self_hash = hashlib.md5(self_seed.encode()).hexdigest()
     random.seed(int(self_hash, 16))
     
     self_results = {
         "name": "YOUR INDIVIDUAL FATE", 
-        "percentage": "100%", # Fate is absolute
+        "percentage": "100%", 
         "tier": "Personal Destiny",
-        "accuracy_level": "Individual Map",
+        "accuracy_level": "Individual Soul Map",
         "reading": "This is your independent cosmic path based on your biometric and temporal markers.",
         "factors": {
             "Foundation": f"{random.randint(40, 99)}%",
@@ -173,7 +173,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     match_results = []
 
     for other in others:
-        # PAIR-UNIT SYMMETRIC SEEDING: sorting ensures A+B = B+A
+        # PAIR-UNIT SYMMETRIC SEEDING: sorting ensures A+B = B+A (Perfect Symmetry)
         dates = sorted([str(me.birthday), str(other.birthday)])
         sigs = sorted([me.palm_signature or "S1", other.palm_signature or "S2"])
         
@@ -183,7 +183,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         random.seed(int(seed_hash, 16))
         tot = random.randint(65, 98)
         
-        # Accuracy Scaling Logic
+        # Accuracy Scaling Logic based on provided fields
         has_astro = (me.birth_time and me.birth_location) or (other.birth_time and other.birth_location)
         has_num = me.full_legal_name or other.full_legal_name
         
