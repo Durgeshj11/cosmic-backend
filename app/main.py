@@ -49,7 +49,7 @@ class User(Base):
     palm_pref = Column(String, default="Western")    
     method_choice = Column(String, default="The Mix") 
 
-    # --- Restored Fields for Accurate Logic ---
+    # --- Fields for Precise Multi-Tradition Logic ---
     birth_time = Column(String, nullable=True)      
     birth_location = Column(String, nullable=True)  
     full_legal_name = Column(String, nullable=True) 
@@ -86,7 +86,7 @@ def nuke_database(db: Session = Depends(get_db)):
         return {"status": "error", "message": str(e)}
 
 async def analyze_palm_ai(image_bytes):
-    """Fallback AI for descriptive reading (not for seeding)."""
+    """Fallback AI for descriptive reading (does not affect match score)."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
         prompt = "Perform a brief, poetic palm reading (Life, Heart, Head lines). Max 35 words."
@@ -143,8 +143,8 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     me = db.query(User).filter(User.email == current_email.strip().lower()).first()
     if not me: raise HTTPException(status_code=404, detail="User Not Found")
     
-    # --- 1. CALCULATE INDIVIDUAL FATE (SELF) ---
-    # Seed based ONLY on the individual's data for deterministic personal fate
+    # --- 1. CALCULATE INDIVIDUAL FATE (SELF) AT INDEX 0 ---
+    # Seed based ONLY on the individual's markers
     self_seed = str(me.birthday) + (me.palm_signature or "SELF_SEED")
     self_hash = hashlib.md5(self_seed.encode()).hexdigest()
     random.seed(int(self_hash, 16))
@@ -166,14 +166,14 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         },
         "is_self": True
     }
-    random.seed(None) # Reset seed
+    random.seed(None) # Clear seed
 
     # --- 2. CALCULATE MATCHES (OTHERS) ---
     others = db.query(User).filter(User.email != me.email).all()
     match_results = []
 
     for other in others:
-        # PAIR-UNIT SYMMETRIC SEEDING: sorting ensures A+B = B+A (Perfect Symmetry)
+        # PAIR-UNIT SYMMETRIC SEEDING: sorting inputs ensures Symmetry (A+B = B+A)
         dates = sorted([str(me.birthday), str(other.birthday)])
         sigs = sorted([me.palm_signature or "S1", other.palm_signature or "S2"])
         
@@ -183,7 +183,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         random.seed(int(seed_hash, 16))
         tot = random.randint(65, 98)
         
-        # Accuracy Scaling Logic based on provided fields
+        # Determine Accuracy Scaling
         has_astro = (me.birth_time and me.birth_location) or (other.birth_time and other.birth_location)
         has_num = me.full_legal_name or other.full_legal_name
         
@@ -214,11 +214,12 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         })
         random.seed(None)
         
-    # Return Self Fate at Index 0, followed by list of matches
+    # Return Self Fate at Index 0 followed by matches to support frontend slide deck
     return [self_results] + match_results
 
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):
+    """Wipes profile to support account management from frontend account menu."""
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if user:
         db.delete(user)
