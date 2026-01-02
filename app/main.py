@@ -143,25 +143,47 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     me = db.query(User).filter(User.email == current_email.strip().lower()).first()
     if not me: raise HTTPException(status_code=404, detail="User Not Found")
     
+    # --- 1. CALCULATE INDIVIDUAL FATE (SELF) ---
+    # Seed based ONLY on the individual's data for deterministic personal fate
+    self_seed = str(me.birthday) + (me.palm_signature or "SELF")
+    self_hash = hashlib.md5(self_seed.encode()).hexdigest()
+    random.seed(int(self_hash, 16))
+    
+    self_results = {
+        "name": "YOUR INDIVIDUAL FATE", 
+        "percentage": "100%", # Fate is absolute
+        "tier": "Personal Destiny",
+        "accuracy_level": "Individual Map",
+        "reading": "This is your independent cosmic path based on your biometric and temporal markers.",
+        "factors": {
+            "Foundation": f"{random.randint(40, 99)}%",
+            "Economics": f"{random.randint(40, 99)}%",
+            "Emotional": f"{random.randint(40, 99)}%",
+            "Spiritual": f"{random.randint(40, 99)}%",
+            "Physical": f"{random.randint(40, 99)}%",
+            "Lifestyle": f"{random.randint(40, 99)}%",
+            "Sexual": f"{random.randint(40, 99)}%"
+        },
+        "is_self": True
+    }
+    random.seed(None) # Reset seed
+
+    # --- 2. CALCULATE MATCHES (OTHERS) ---
     others = db.query(User).filter(User.email != me.email).all()
-    results = []
+    match_results = []
 
     for other in others:
-        # --- 1. PAIR-UNIT SYMMETRIC SEEDING ---
-        # Sorting inputs ensures A+B is identical to B+A (Perfect Symmetry)
+        # PAIR-UNIT SYMMETRIC SEEDING
         dates = sorted([str(me.birthday), str(other.birthday)])
-        
-        # Biometric Stability: uses SHA-256 Layer 4 signatures from frontend
         sigs = sorted([me.palm_signature or "S1", other.palm_signature or "S2"])
         
-        # Unique shared seed for the couple
         seed_raw = "".join(dates) + "".join(sigs)
         seed_hash = hashlib.md5(seed_raw.encode()).hexdigest()
         
         random.seed(int(seed_hash, 16))
         tot = random.randint(65, 98)
         
-        # --- 2. ACCURACY SCALING (Logic Depth) ---
+        # Logic Depth Calculation
         has_astro = (me.birth_time and me.birth_location) or (other.birth_time and other.birth_location)
         has_num = me.full_legal_name or other.full_legal_name
         
@@ -173,8 +195,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         elif "Num" in me.method_choice and has_num:
             quality = "High Accuracy (Numerology Enhanced)"
 
-        # --- 3. 7-FACTOR SYMMETRIC GRID ---
-        results.append({
+        match_results.append({
             "name": other.name, 
             "percentage": f"{tot}%",
             "tier": "Marriage Material" if tot >= 90 else "Strong Match" if tot >= 78 else "Just Friends",
@@ -188,11 +209,13 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
                 "Physical": f"{random.randint(60, 98)}%",
                 "Lifestyle": f"{random.randint(60, 95)}%",
                 "Sexual": f"{random.randint(60, 98)}%"
-            }
+            },
+            "is_self": False
         })
         random.seed(None)
         
-    return results
+    # Return Self Fate first, followed by list of matches
+    return [self_results] + match_results
 
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):

@@ -9,8 +9,8 @@ pydantic==2.6.3
 # =====================================================
 # AI & Image Processing (The "Voice" Layer)
 # =====================================================
-# Used ONLY for generating poetic readings/explanations
-# The match % is seeded by the Frontend Signature instead
+# Used ONLY for generating poetic readings/explanations.
+# The match % is seeded by the Frontend Signature instead.
 google-generativeai==0.4.1
 Pillow==10.2.0
 
@@ -26,5 +26,5 @@ python-dotenv==1.0.1
 # =====================================================
 anyio==4.3.0
 typing-extensions==4.10.0
-# For deterministic seeding and entropy scaling
+# Necessary for deterministic seeding and symmetric match scaling
 numpy==1.26.4
