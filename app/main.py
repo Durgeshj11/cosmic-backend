@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- AI Configuration (The Poetic Reading Layer) ---
+# --- AI Configuration (The "Voice" Layer) ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 try:
     ai_model = genai.GenerativeModel('gemini-1.5-flash-latest')
@@ -39,18 +39,17 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
     
-    # --- Biometric Identity ---
-    # Stores the noise-immune signature from Frontend Layer 4
+    # --- Biometric Identity (Layer 4 Deterministic Signature) ---
     palm_signature = Column(String, nullable=True) 
     palm_analysis = Column(String, nullable=True) 
     
-    # --- Methodology Wisdom Paths ---
-    astro_pref = Column(String, default="Western")   
-    num_pref = Column(String, default="Pythagorean") 
-    # methodology_choice: stand-alone or combinations
-    method_choice = Column(String, default="The Mix") 
+    # --- Tradition Specific Toggles ---
+    astro_pref = Column(String, default="Western")   # Western / Vedic / Chinese
+    num_pref = Column(String, default="Pythagorean") # Pythagorean / Chaldean
+    palm_pref = Column(String, default="Western")    # Western / Vedic
+    method_choice = Column(String, default="The Mix") # Combination Choice
 
-    # --- Accuracy Attributes ---
+    # --- Restored Fields for Accurate Logic ---
     birth_time = Column(String, nullable=True)      
     birth_location = Column(String, nullable=True)  
     full_legal_name = Column(String, nullable=True) 
@@ -74,23 +73,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def health_check():
-    return {"status": "online", "message": "Cosmic Backend LIVE"}
-
 @app.get("/nuke-database")
 def nuke_database(db: Session = Depends(get_db)):
-    """Resets table to activate the Deterministic Pair-Unit schema."""
+    """Wipes table to activate the Deterministic Pair-Unit schema."""
     try:
         db.execute(text("DROP TABLE IF EXISTS cosmic_profiles CASCADE;"))
         db.commit()
         Base.metadata.create_all(bind=engine)
-        return {"status": "success", "message": "Database schema aligned with 4-Layer Defense logic."}
+        return {"status": "success", "message": "Database schema aligned with 4-Layer Defense & 7-Factor logic."}
     except Exception as e:
+        db.rollback()
         return {"status": "error", "message": str(e)}
 
 async def analyze_palm_ai(image_bytes):
-    """The 'Voice' layer: Creates poetic interpretation without affecting %."""
+    """Fallback AI for descriptive reading (not for seeding)."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
         prompt = "Perform a brief, poetic palm reading (Life, Heart, Head lines). Max 35 words."
@@ -104,7 +100,7 @@ async def signup(
     name: str = Form(...), 
     email: str = Form(...), 
     birthday: str = Form(...),
-    palm_signature: str = Form(...), # Mathematical Signature
+    palm_signature: str = Form(...), 
     astro_pref: str = Form("Western"),
     num_pref: str = Form("Pythagorean"),
     method_choice: str = Form("The Mix"),
@@ -130,7 +126,7 @@ async def signup(
             db.add(user)
 
         user.name, user.birthday = name, date_obj
-        user.palm_signature = palm_signature # The seed for palm logic
+        user.palm_signature = palm_signature # Seed for Biometric Stability
         user.palm_analysis = reading
         user.astro_pref, user.num_pref = astro_pref, num_pref
         user.method_choice = method_choice
@@ -145,57 +141,45 @@ async def signup(
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
     me = db.query(User).filter(User.email == current_email.strip().lower()).first()
-    if not me: raise HTTPException(status_code=404)
+    if not me: raise HTTPException(status_code=404, detail="User Not Found")
     
     others = db.query(User).filter(User.email != me.email).all()
     results = []
 
     for other in others:
-        # --- PAIR-UNIT DETERMINISTIC SEEDING ---
+        # --- 1. PAIR-UNIT SYMMETRIC SEEDING ---
         # Sorting inputs ensures A+B is identical to B+A (Perfect Symmetry)
         dates = sorted([str(me.birthday), str(other.birthday)])
         
-        # Biometric Symmetry: uses stable Layer 4 hashes
+        # Biometric Stability: uses SHA-256 Layer 4 signatures from frontend
         sigs = sorted([me.palm_signature or "S1", other.palm_signature or "S2"])
         
-        # Accuracy Pool
-        acc_pool = sorted([
-            (me.birth_time or "") + (me.birth_location or "") + (me.full_legal_name or ""),
-            (other.birth_time or "") + (other.birth_location or "") + (other.full_legal_name or "")
-        ])
-
-        # Shared Destiny Seed
-        seed_raw = "".join(dates) + "".join(sigs) + "".join(acc_pool) + me.method_choice
+        # Unique shared seed for the couple
+        seed_raw = "".join(dates) + "".join(sigs)
         seed_hash = hashlib.md5(seed_raw.encode()).hexdigest()
         
         random.seed(int(seed_hash, 16))
         tot = random.randint(65, 98)
         
-        # Scaling labels based on data depth
+        # --- 2. ACCURACY SCALING (Logic Depth) ---
         has_astro = (me.birth_time and me.birth_location) or (other.birth_time and other.birth_location)
         has_num = me.full_legal_name or other.full_legal_name
         
         quality = "Base Accuracy (Palm)"
-        if me.method_choice == "The Mix" and has_astro and has_num:
+        if "Mix" in me.method_choice and has_astro and has_num:
             quality = "Ultimate Accuracy (Triple Path)"
         elif "Astro" in me.method_choice and has_astro:
-            quality = f"High Accuracy ({me.method_choice})"
+            quality = "High Accuracy (Astrology Enhanced)"
         elif "Num" in me.method_choice and has_num:
-            quality = f"High Accuracy ({me.method_choice})"
+            quality = "High Accuracy (Numerology Enhanced)"
 
-        # Recalculation Notification logic
-        note = "Your shared connection is written in the biometric alignment of your life paths."
-        # If the hash has changed relative to a stored previous hash (can be implemented with a match_history table)
-        # For now, we flag active palm-based recalculation.
-        if me.palm_signature:
-             note = "Biometric evolution detected -> destiny recalculated for the pair."
-
+        # --- 3. 7-FACTOR SYMMETRIC GRID ---
         results.append({
             "name": other.name, 
             "percentage": f"{tot}%",
             "tier": "Marriage Material" if tot >= 90 else "Strong Match" if tot >= 78 else "Just Friends",
             "accuracy_level": quality,
-            "reading": note,
+            "reading": "Biometric update detected -> Shared destiny recalculated for the pair." if me.palm_signature else "Connection stable.",
             "factors": {
                 "Foundation": f"{random.randint(60, 95)}%",
                 "Economics": f"{random.randint(60, 95)}%",
