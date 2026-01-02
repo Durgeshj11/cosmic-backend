@@ -173,7 +173,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     match_results = []
 
     for other in others:
-        # PAIR-UNIT SYMMETRIC SEEDING
+        # PAIR-UNIT SYMMETRIC SEEDING: sorting ensures A+B = B+A
         dates = sorted([str(me.birthday), str(other.birthday)])
         sigs = sorted([me.palm_signature or "S1", other.palm_signature or "S2"])
         
@@ -183,7 +183,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         random.seed(int(seed_hash, 16))
         tot = random.randint(65, 98)
         
-        # Logic Depth Calculation
+        # Accuracy Scaling Logic
         has_astro = (me.birth_time and me.birth_location) or (other.birth_time and other.birth_location)
         has_num = me.full_legal_name or other.full_legal_name
         
@@ -214,7 +214,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         })
         random.seed(None)
         
-    # Return Self Fate first, followed by list of matches
+    # Return Self Fate at Index 0, followed by list of matches
     return [self_results] + match_results
 
 @app.delete("/delete-profile")
