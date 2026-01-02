@@ -1,26 +1,30 @@
 # =====================================================
-# Web Server & API Framework
+# Web Server & API Framework (The Gateway)
 # =====================================================
 fastapi==0.110.0
 uvicorn==0.27.1
 python-multipart==0.0.9
+pydantic==2.6.3
 
 # =====================================================
 # AI & Image Processing (The "Voice" Layer)
 # =====================================================
-# Used for generating descriptive readings, NOT for the match %
+# Used ONLY for generating poetic readings/explanations
+# The match % is seeded by the Frontend Signature instead
 google-generativeai==0.4.1
 Pillow==10.2.0
 
 # =====================================================
-# Database & Environment
+# Database & Environment (The Memory)
 # =====================================================
 sqlalchemy==2.0.28
 psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 
 # =====================================================
-# Async & Compatibility
+# Async, Compatibility & Math (The Engine)
 # =====================================================
 anyio==4.3.0
 typing-extensions==4.10.0
+# For deterministic seeding and entropy scaling
+numpy==1.26.4
