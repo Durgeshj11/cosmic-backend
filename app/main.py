@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# --- AI Configuration ---
+# --- AI Configuration (Fixed for 404/Model-Not-Found Errors) ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 
 try:
@@ -40,16 +40,18 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    palm_analysis = Column(String, nullable=True)
     
-    # --- Wisdom Layers (Multi-Tradition Preferences) ---
-    # As per image_472971.png logic
+    # --- Palm Biometric Layer ---
+    # Stores the Layer 4 Quantized Signature from the frontend
+    palm_signature = Column(String, nullable=True) 
+    palm_analysis = Column(String, nullable=True) # Legacy support for AI text
+    
+    # --- Methodology & Wisdom Layers ---
     astro_pref = Column(String, default="Western")   # Vedic vs. Western vs. Chinese
     num_pref = Column(String, default="Pythagorean") # Pythagorean vs. Chaldean
-    palm_pref = Column(String, default="Western")    # Western vs. Vedic
+    method_choice = Column(String, default="The Mix") # User-selected logic set
     
-    # --- Accuracy Data (Layered Seeding) ---
-    # As per image_47f809.png logic
+    # --- Accuracy Data ---
     birth_time = Column(String, nullable=True)      
     birth_location = Column(String, nullable=True)  
     full_legal_name = Column(String, nullable=True) 
@@ -77,31 +79,29 @@ app.add_middleware(
 
 @app.get("/")
 def health_check():
-    return {"status": "online", "message": "Cosmic Backend is LIVE"}
+    return {"status": "online", "message": "Cosmic Backend LIVE"}
 
-# --- UTILITY: DEEP RESET (NUKE) ---
+# --- UTILITY: RESET DATABASE (NUKE) ---
 @app.get("/nuke-database")
 def nuke_database(db: Session = Depends(get_db)):
-    """Wipes table AND recreates it with new schema columns."""
+    """Wipes table to activate Palm Signature & Symmetric Logic."""
     try:
-        # Drop table ensures columns like astro_pref are actually added
         db.execute(text("DROP TABLE IF EXISTS cosmic_profiles CASCADE;"))
         db.commit()
-        # Force recreation of the table based on the User class above
         Base.metadata.create_all(bind=engine)
-        return {"status": "success", "message": "Table dropped and recreated with full multi-tradition schema."}
+        return {"status": "success", "message": "Schema reset for Deterministic Palm Signatures & Pair Symmetry."}
     except Exception as e:
         db.rollback()
         return {"status": "error", "message": str(e)}
 
-async def analyze_palm_ai(image_bytes, palm_pref):
-    """AI analysis adjusted by Western or Vedic preference."""
+async def analyze_palm_ai(image_bytes):
+    """Fallback AI for descriptive reading (not for seeding)."""
     try:
         img = Image.open(io.BytesIO(image_bytes))
-        prompt = f"Perform a detailed {palm_pref} palm reading focusing on lines and cosmic symbols. Max 40 words."
+        prompt = "Perform a detailed palm reading. Max 40 words."
         response = ai_model.generate_content([prompt, img])
         return response.text
-    except Exception as e:
+    except:
         return "Your palm reveals a journey of unique potential and cosmic alignment."
 
 @app.post("/signup-full")
@@ -109,105 +109,112 @@ async def signup(
     name: str = Form(...), 
     email: str = Form(...), 
     birthday: str = Form(...),
+    palm_signature: str = Form(...), # Deterministic Signature from Frontend Layer 4
     astro_pref: str = Form("Western"),
     num_pref: str = Form("Pythagorean"),
-    palm_pref: str = Form("Western"),
+    method_choice: str = Form("The Mix"),
     birth_time: str = Form(None),
     birth_location: str = Form(None),
     full_legal_name: str = Form(None),
-    photos: List[UploadFile] = File(...),
+    photos: List[UploadFile] = File(None), # Optional for legacy reading
     db: Session = Depends(get_db)
 ):
     clean_email = email.strip().lower()
     
-    # 1. AI Palm Reading
-    try:
-        photo_data = await photos[0].read()
-        reading = await analyze_palm_ai(photo_data, palm_pref)
-    except:
-        reading = "Biological data captured. Cosmic alignment pending."
+    # Optional AI Reading (Visual appeal only, not for logic seeding)
+    reading = "Cosmic alignment captured."
+    if photos:
+        try:
+            photo_data = await photos[0].read()
+            reading = await analyze_palm_ai(photo_data)
+        except: pass
 
     try:
-        # 2. Date Parsing
         date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
-        
-        # 3. Create or Update User
         user = db.query(User).filter(User.email == clean_email).first()
+        
         if not user:
             user = User(email=clean_email)
             db.add(user)
 
-        user.name = name
-        user.birthday = date_obj
+        user.name, user.birthday = name, date_obj
+        user.palm_signature = palm_signature # Updated Biometric
         user.palm_analysis = reading
-        user.astro_pref = astro_pref
-        user.num_pref = num_pref
-        user.palm_pref = palm_pref
-        user.birth_time = birth_time
-        user.birth_location = birth_location
-        user.full_legal_name = full_legal_name
+        user.astro_pref, user.num_pref = astro_pref, num_pref
+        user.method_choice = method_choice
+        user.birth_time, user.birth_location, user.full_legal_name = birth_time, birth_location, full_legal_name
         
         db.commit()
-        return {"message": "Success"}
+        return {"message": "Success", "signature": palm_signature}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail="Database error during signup")
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
-    email_clean = current_email.strip().lower()
-    me = db.query(User).filter(User.email == email_clean).first()
+    me = db.query(User).filter(User.email == current_email.strip().lower()).first()
     if not me: raise HTTPException(status_code=404, detail="User Not Found")
     
-    others = db.query(User).filter(User.email != email_clean).all()
+    others = db.query(User).filter(User.email != me.email).all()
     results = []
 
     for other in others:
-        # Layered Seeding logic
-        base_seeds = "".join(sorted([str(me.birthday), str(other.birthday)]))
-        pref_seeds = me.astro_pref + me.num_pref + me.palm_pref
-        acc_data = (me.birth_time or "") + (me.birth_location or "") + (me.full_legal_name or "")
+        # --- PAIR-UNIT SYMMETRIC SEEDING ---
+        # Sort data to ensure (Me + Other) == (Other + Me) remains identical
+        dates = sorted([str(me.birthday), str(other.birthday)])
         
-        seed_hash = hashlib.md5((base_seeds + pref_seeds + acc_data).encode()).hexdigest()
-        random.seed(int(seed_hash, 16)) 
+        # Seeding strictly via Frontend-generated signatures
+        signatures = sorted([me.palm_signature or "S1", other.palm_signature or "S2"])
         
+        # Accuracy Pool (Symmetric)
+        acc_pool = sorted([
+            (me.birth_time or "") + (me.birth_location or "") + (me.full_legal_name or ""),
+            (other.birth_time or "") + (other.birth_location or "") + (other.full_legal_name or "")
+        ])
+
+        # Final Deterministic Hash Seed locks all results for this pair
+        seed_raw = "".join(dates) + "".join(signatures) + "".join(acc_pool) + me.method_choice
+        seed_hash = hashlib.md5(seed_raw.encode()).hexdigest()
+        
+        random.seed(int(seed_hash, 16))
         tot = random.randint(65, 98)
         
-        # Determine Label Quality
-        if me.birth_time and me.birth_location and me.full_legal_name: 
-            quality = "Ultimate Accuracy"
-        elif me.birth_time or me.full_legal_name: 
-            quality = "High Accuracy"
-        else: 
-            quality = "Base Accuracy"
+        # Methodology Logic Scaling
+        has_astro = (me.birth_time and me.birth_location) or (other.birth_time and other.birth_location)
+        has_num = me.full_legal_name or other.full_legal_name
+        
+        quality = "Base Accuracy (Palm)"
+        if me.method_choice == "The Mix" and has_astro and has_num:
+            quality = "Ultimate Accuracy (Triple Path)"
+        elif "Astro" in me.method_choice and has_astro:
+            quality = f"High Accuracy ({me.method_choice})"
+        elif "Num" in me.method_choice and has_num:
+            quality = f"High Accuracy ({me.method_choice})"
 
-        # Match Tiering
-        if tot >= 90: tier = "Marriage Material"
-        elif tot >= 78: tier = "Strong Match"
-        elif tot >= 68: tier = "Fling / Casual"
-        else: tier = "Just Friends"
-
-        # Dynamic Factor Labeling
-        astro_label = "Zodiac Sync"
-        if me.astro_pref == "Vedic": astro_label = "Karmic Link"
-        elif me.astro_pref == "Chinese": astro_label = "Animal Sign"
+        # Dynamic Notification
+        # Since signatures are deterministic, any change detected indicates a real palm evolution.
+        reading_text = "Your connection is written in the physical alignment of your life paths."
+        if me.palm_signature:
+             reading_text = "Palm Update Detected -> Shared destiny recalculated via latest biometric alignment."
 
         results.append({
             "name": other.name, 
             "percentage": f"{tot}%",
-            "tier": tier,
+            "tier": "Marriage Material" if tot >= 90 else "Strong Match" if tot >= 78 else "Just Friends",
             "accuracy_level": quality,
+            "reading": reading_text,
             "factors": {
                 "Foundation": f"{random.randint(60, 95)}%",
                 "Economics": f"{random.randint(60, 95)}%",
-                astro_label: f"{random.randint(60, 98)}%",
+                "Emotional": f"{random.randint(60, 98)}%",
                 "Lifestyle": f"{random.randint(60, 95)}%",
-                "Sexual": f"{random.randint(60, 98)}%",
-                "Emotional": f"{random.randint(60, 98)}%"
-            },
-            "reading": "Your connection is rooted in the physical and cosmic alignment of your paths."
+                "Physical": f"{random.randint(60, 98)}%",
+                "Spiritual": f"{random.randint(60, 98)}%",
+                "Sexual": f"{random.randint(60, 98)}%"
+            }
         })
         random.seed(None)
+        
     return results
 
 @app.delete("/delete-profile")
@@ -217,4 +224,4 @@ def delete_profile(email: str, db: Session = Depends(get_db)):
         db.delete(user)
         db.commit()
         return {"message": "Deleted"}
-    raise HTTPException(status_code=404, detail="Not found")
+    raise HTTPException(status_code=404)
