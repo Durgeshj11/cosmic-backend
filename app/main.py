@@ -37,7 +37,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Models (Dual-Paid Gating & Acceptance Logic Preserved) ---
+# --- Models ---
 class User(Base):
     __tablename__ = "cosmic_profiles"
     id = Column(Integer, primary_key=True, index=True)
@@ -57,9 +57,7 @@ class Match(Base):
     user_a = Column(String, index=True) 
     user_b = Column(String, index=True) 
     is_mutual = Column(Boolean, default=False)
-    is_unlocked = Column(Boolean, default=False) # Bypasses AI Filter
-    
-    # Tracking for Dual-Paid Gate & Acceptance
+    is_unlocked = Column(Boolean, default=False) 
     user_a_accepted = Column(Boolean, default=False)
     user_b_accepted = Column(Boolean, default=False)
     request_initiated_by = Column(String) 
@@ -81,7 +79,7 @@ def get_db():
 
 app = FastAPI()
 
-# --- HIGH STABILITY CORS (FOR iOS/ANDROID) ---
+# --- HIGH STABILITY CORS (FOR iOS/ANDROID/WEB) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -157,7 +155,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         "factors": {k: f"{random.randint(40,99)}%" for k in ["Foundation", "Economics", "Lifestyle", "Emotional", "Physical", "Spiritual", "Sexual"]}
     })
 
-    # 2. Match Feed with Symmetric Visibility
+    # 2. Match Feed
     for o in others:
         pair_dates = sorted([str(me.birthday), str(o.birthday)])
         pair_sigs = sorted([me.palm_signature or "S1", o.palm_signature or "S2"])
@@ -183,25 +181,19 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
 @app.post("/like-profile")
 async def like_profile(my_email: str = Form(...), target_email: str = Form(...), db: Session = Depends(get_db)):
     my, target = my_email.lower().strip(), target_email.lower().strip()
-    
-    # Check if target already liked me
     existing = db.query(Match).filter(Match.user_a == target, Match.user_b == my).first()
     if existing:
         existing.is_mutual = True
-        # Ensure symmetric visibility for chat gate
-        if not existing.request_initiated_by:
-            existing.request_initiated_by = target
+        if not existing.request_initiated_by: existing.request_initiated_by = target
         db.commit()
         return {"status": "match"}
-    
-    # Create or update my like for target
     i_already_liked = db.query(Match).filter(Match.user_a == my, Match.user_b == target).first()
     if not i_already_liked:
         db.add(Match(user_a=my, user_b=target, is_mutual=False, request_initiated_by=my))
         db.commit()
     return {"status": "liked"}
 
-# --- FIXED SYMMETRIC CHAT STATUS ---
+# --- FIXED SYMMETRIC CHAT GATE ---
 @app.get("/chat-status")
 async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
@@ -210,10 +202,7 @@ async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
         ((Match.user_b == me) & (Match.user_a == them))
     ).first()
 
-    # Chat is accepted for BOTH if EITHER has clicked accept
     is_globally_accepted = match.user_a_accepted or match.user_b_accepted if match else False
-    
-    # Calculate engaged slots based on explicit acceptances
     engaged_count = db.query(Match).filter(
         ((Match.user_a == me) & (Match.user_a_accepted == True)) |
         ((Match.user_b == me) & (Match.user_b_accepted == True))
@@ -234,23 +223,29 @@ async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: bool 
     ).first()
     if not match: raise HTTPException(status_code=404)
 
-    # Count connections where this user has already clicked accept
     engaged_count = db.query(Match).filter(
         ((Match.user_a == me) & (Match.user_a_accepted == True)) |
         ((Match.user_b == me) & (Match.user_b_accepted == True))
     ).count()
 
-    # Monetization Gate: Only trigger for new 3rd+ connection
     if engaged_count >= 2 and not is_paid and not (match.user_a_accepted or match.user_b_accepted):
         return {"status": "payment_required", "engaged_count": engaged_count}
 
-    # Set acceptance flag for the clicking user
     if match.user_a == me: match.user_a_accepted = True
     else: match.user_b_accepted = True
-    
     if is_paid: match.is_unlocked = True 
     db.commit()
     return {"status": "accepted"}
+
+# --- NEW: FETCH MESSAGES (Ensures Hi reaches both) ---
+@app.get("/messages")
+async def get_messages(me: str, them: str, db: Session = Depends(get_db)):
+    me, them = me.lower().strip(), them.lower().strip()
+    msgs = db.query(ChatMessage).filter(
+        ((ChatMessage.sender == me) & (ChatMessage.receiver == them)) |
+        ((ChatMessage.sender == them) & (ChatMessage.receiver == me))
+    ).order_by(ChatMessage.timestamp.asc()).all()
+    return [{"sender": m.sender, "content": m.content, "time": m.timestamp.isoformat()} for m in msgs]
 
 @app.post("/send-message")
 async def send_message(sender: str = Form(...), receiver: str = Form(...), content: str = Form(...), db: Session = Depends(get_db)):
@@ -261,7 +256,6 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
     ).first()
     if not match: raise HTTPException(status_code=403, detail="Mutual match required.")
 
-    # Nuclear filter bypass for premium
     if not match.is_unlocked:
         prompt = f"Reply ONLY 'LEAK' or 'SAFE': {content}"
         ai_resp = ai_model.generate_content(prompt).text.strip().upper()
