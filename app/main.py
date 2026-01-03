@@ -37,7 +37,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Models (Updated for Dual-Paid Gating & Acceptance) ---
+# --- Models (Dual-Paid Gating & Acceptance Logic Preserved) ---
 class User(Base):
     __tablename__ = "cosmic_profiles"
     id = Column(Integer, primary_key=True, index=True)
@@ -57,12 +57,12 @@ class Match(Base):
     user_a = Column(String, index=True) 
     user_b = Column(String, index=True) 
     is_mutual = Column(Boolean, default=False)
-    is_unlocked = Column(Boolean, default=False) # Global Unlock (Bypasses AI Filter)
+    is_unlocked = Column(Boolean, default=False) # Bypasses AI Filter
     
-    # NEW: Tracking for Dual-Paid Gate & Acceptance
+    # Tracking for Dual-Paid Gate & Acceptance
     user_a_accepted = Column(Boolean, default=False)
     user_b_accepted = Column(Boolean, default=False)
-    request_initiated_by = Column(String) # Track who started the chat request
+    request_initiated_by = Column(String) 
 
 class ChatMessage(Base):
     __tablename__ = "cosmic_messages"
@@ -82,7 +82,6 @@ def get_db():
 app = FastAPI()
 
 # --- HIGH STABILITY CORS (FOR iOS/ANDROID) ---
-# Supports pre-flight caching to prevent "Failed to Fetch" on mobile browsers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -100,7 +99,7 @@ def nuke_database(db: Session = Depends(get_db)):
         db.execute(text("DROP TABLE IF EXISTS cosmic_profiles, cosmic_matches, cosmic_messages CASCADE;"))
         db.commit()
         Base.metadata.create_all(bind=engine)
-        return {"status": "success", "message": "Database synchronized with Monetization logic."}
+        return {"status": "success", "message": "Database synchronized."}
     except Exception as e:
         db.rollback()
         return {"status": "error", "message": str(e)}
@@ -115,53 +114,41 @@ async def signup(
 ):
     clean_email = email.strip().lower()
     photo_urls = []
-    
     if photos:
         for photo in photos:
             try:
-                # Optimized for mobile byte-stream to prevent upload timeouts
                 file_content = await photo.read()
                 res = cloudinary.uploader.upload(file_content)
                 photo_urls.append(res['secure_url'])
-            except Exception as e:
-                print(f"Upload Error: {e}")
+            except: pass
 
     try:
-        # Date parsing robust enough for different string formats
         date_str = birthday.split(" ")[0]
         date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-        
         user = db.query(User).filter(User.email == clean_email).first()
         if not user:
             user = User(email=clean_email)
             db.add(user)
-        
         user.name, user.birthday = name, date_obj
         user.palm_signature, user.full_legal_name = palm_signature, full_legal_name
         user.birth_time, user.birth_location = birth_time, birth_location
         user.methods, user.photos = methods, ",".join(photo_urls)
-        
         db.commit()
         return {"message": "Success", "signature": palm_signature}
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
     clean_me = current_email.strip().lower()
-    
-    # "Ping" support for mobile server wake-up
-    if clean_me == "ping" or clean_me == "warmup":
-        return {"status": "ready"}
-
+    if clean_me in ["ping", "warmup"]: return {"status": "ready"}
     me = db.query(User).filter(User.email == clean_me).first()
     if not me: raise HTTPException(status_code=404)
-    
     others = db.query(User).filter(User.email != me.email).all()
     results = []
 
-    # 1. Self Card logic preserved
+    # 1. Self Card
     self_seed = str(me.birthday) + (me.palm_signature or "SELF")
     random.seed(int(hashlib.md5(self_seed.encode()).hexdigest(), 16))
     results.append({
@@ -196,39 +183,44 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
 @app.post("/like-profile")
 async def like_profile(my_email: str = Form(...), target_email: str = Form(...), db: Session = Depends(get_db)):
     my, target = my_email.lower().strip(), target_email.lower().strip()
+    
+    # Check if target already liked me
     existing = db.query(Match).filter(Match.user_a == target, Match.user_b == my).first()
     if existing:
         existing.is_mutual = True
+        # Ensure symmetric visibility for chat gate
+        if not existing.request_initiated_by:
+            existing.request_initiated_by = target
         db.commit()
         return {"status": "match"}
     
+    # Create or update my like for target
     i_already_liked = db.query(Match).filter(Match.user_a == my, Match.user_b == target).first()
     if not i_already_liked:
-        db.add(Match(user_a=my, user_b=target, is_mutual=False))
+        db.add(Match(user_a=my, user_b=target, is_mutual=False, request_initiated_by=my))
         db.commit()
     return {"status": "liked"}
 
+# --- FIXED SYMMETRIC CHAT STATUS ---
 @app.get("/chat-status")
 async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
-    
-    # Dual-Paid Gate Logic (Engaged unique count)
-    engaged_count = db.query(Match).filter(
-        ((Match.user_a == me) & ((Match.user_a_accepted == True) | (Match.request_initiated_by == me))) |
-        ((Match.user_b == me) & ((Match.user_b_accepted == True) | (Match.request_initiated_by == me)))
-    ).count()
-
     match = db.query(Match).filter(
         ((Match.user_a == me) & (Match.user_b == them)) |
         ((Match.user_b == me) & (Match.user_a == them))
     ).first()
+
+    # Chat is accepted for BOTH if EITHER has clicked accept
+    is_globally_accepted = match.user_a_accepted or match.user_b_accepted if match else False
     
-    accepted = False
-    if match:
-        accepted = match.user_a_accepted if match.user_a == me else match.user_b_accepted
+    # Calculate engaged slots based on explicit acceptances
+    engaged_count = db.query(Match).filter(
+        ((Match.user_a == me) & (Match.user_a_accepted == True)) |
+        ((Match.user_b == me) & (Match.user_b_accepted == True))
+    ).count()
         
     return {
-        "accepted": accepted,
+        "accepted": is_globally_accepted,
         "engaged_count": engaged_count,
         "is_paid": match.is_unlocked if match else False
     }
@@ -236,46 +228,40 @@ async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
 @app.post("/accept-chat")
 async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: bool = Form(False), db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
-    
     match = db.query(Match).filter(
         ((Match.user_a == me) & (Match.user_b == them)) |
         ((Match.user_b == me) & (Match.user_a == them))
     ).first()
+    if not match: raise HTTPException(status_code=404)
 
-    if not match: raise HTTPException(status_code=404, detail="Match not found")
+    # Count connections where this user has already clicked accept
+    engaged_count = db.query(Match).filter(
+        ((Match.user_a == me) & (Match.user_a_accepted == True)) |
+        ((Match.user_b == me) & (Match.user_b_accepted == True))
+    ).count()
 
-    engaged_query = db.query(Match).filter(
-        ((Match.user_a == me) & ((Match.user_a_accepted == True) | (Match.request_initiated_by == me))) |
-        ((Match.user_b == me) & ((Match.user_b_accepted == True) | (Match.request_initiated_by == me)))
-    )
-    engaged_count = engaged_query.count()
-
-    is_new_engagement = not ((match.user_a == me and match.user_a_accepted) or 
-                             (match.user_b == me and match.user_b_accepted) or 
-                             (match.request_initiated_by == me))
-    
-    # Monetization: 3rd unique person limit logic preserved
-    if is_new_engagement and engaged_count >= 2 and not is_paid:
+    # Monetization Gate: Only trigger for new 3rd+ connection
+    if engaged_count >= 2 and not is_paid and not (match.user_a_accepted or match.user_b_accepted):
         return {"status": "payment_required", "engaged_count": engaged_count}
 
+    # Set acceptance flag for the clicking user
     if match.user_a == me: match.user_a_accepted = True
     else: match.user_b_accepted = True
     
-    if is_paid: match.is_unlocked = True # Premium permanent unlock
+    if is_paid: match.is_unlocked = True 
     db.commit()
     return {"status": "accepted"}
 
 @app.post("/send-message")
 async def send_message(sender: str = Form(...), receiver: str = Form(...), content: str = Form(...), db: Session = Depends(get_db)):
-    sender_mail, receiver_mail = sender.lower().strip(), receiver.lower().strip()
+    s_mail, r_mail = sender.lower().strip(), receiver.lower().strip()
     match = db.query(Match).filter(
-        ((Match.user_a == sender_mail) & (Match.user_b == receiver_mail) & (Match.is_mutual == True)) |
-        ((Match.user_b == sender_mail) & (Match.user_a == receiver_mail) & (Match.is_mutual == True))
+        ((Match.user_a == s_mail) & (Match.user_b == r_mail) & (Match.is_mutual == True)) |
+        ((Match.user_b == s_mail) & (Match.user_a == r_mail) & (Match.is_mutual == True))
     ).first()
-
     if not match: raise HTTPException(status_code=403, detail="Mutual match required.")
 
-    # Nuclear filter bypass if premium is paid
+    # Nuclear filter bypass for premium
     if not match.is_unlocked:
         prompt = f"Reply ONLY 'LEAK' or 'SAFE': {content}"
         ai_resp = ai_model.generate_content(prompt).text.strip().upper()
@@ -283,7 +269,7 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
             db.delete(match); db.commit()
             raise HTTPException(status_code=403, detail="Privacy Violation.")
 
-    db.add(ChatMessage(sender=sender_mail, receiver=receiver_mail, content=content))
+    db.add(ChatMessage(sender=s_mail, receiver=r_mail, content=content))
     db.commit()
     return {"status": "sent"}
 
