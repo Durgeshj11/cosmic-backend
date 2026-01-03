@@ -14,7 +14,6 @@ from sqlalchemy import create_engine, Column, Integer, String, Date, Boolean, Da
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import google.generativeai as genai
-from PIL import Image
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -38,7 +37,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Models (Updated for Dual-Paid Gating & Acceptance) ---
+# --- Models ---
 class User(Base):
     __tablename__ = "cosmic_profiles"
     id = Column(Integer, primary_key=True, index=True)
@@ -58,12 +57,10 @@ class Match(Base):
     user_a = Column(String, index=True) 
     user_b = Column(String, index=True) 
     is_mutual = Column(Boolean, default=False)
-    is_unlocked = Column(Boolean, default=False) # Global Unlock (Bypasses AI Filter)
-    
-    # NEW: Tracking for Dual-Paid Gate & Acceptance
+    is_unlocked = Column(Boolean, default=False) 
     user_a_accepted = Column(Boolean, default=False)
     user_b_accepted = Column(Boolean, default=False)
-    request_initiated_by = Column(String) # Track who started the chat request
+    request_initiated_by = Column(String) 
 
 class ChatMessage(Base):
     __tablename__ = "cosmic_messages"
@@ -81,7 +78,17 @@ def get_db():
     finally: db.close()
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+# --- HIGH STABILITY CORS (FOR iOS/ANDROID) ---
+# Supports pre-flight caching to prevent "Failed to Fetch" on mobile browsers
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS", "DELETE"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
+    max_age=600, 
+)
 
 # --- Endpoints ---
 
@@ -91,7 +98,7 @@ def nuke_database(db: Session = Depends(get_db)):
         db.execute(text("DROP TABLE IF EXISTS cosmic_profiles, cosmic_matches, cosmic_messages CASCADE;"))
         db.commit()
         Base.metadata.create_all(bind=engine)
-        return {"status": "success", "message": "Database synchronized with v1.2 Monetization logic."}
+        return {"status": "success", "message": "Database synchronized with Monetization logic."}
     except Exception as e:
         db.rollback()
         return {"status": "error", "message": str(e)}
@@ -106,37 +113,54 @@ async def signup(
 ):
     clean_email = email.strip().lower()
     photo_urls = []
+    
+    # Cloudinary Upload logic preserved
     if photos:
         for photo in photos:
             try:
-                res = cloudinary.uploader.upload(photo.file)
+                # Optimized for mobile byte-stream
+                file_content = await photo.read()
+                res = cloudinary.uploader.upload(file_content)
                 photo_urls.append(res['secure_url'])
-            except: pass
+            except Exception as e:
+                print(f"Upload Error: {e}")
+
     try:
-        date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
+        # Date parsing robust enough for different string formats
+        date_str = birthday.split(" ")[0]
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+        
         user = db.query(User).filter(User.email == clean_email).first()
         if not user:
             user = User(email=clean_email)
             db.add(user)
+        
         user.name, user.birthday = name, date_obj
         user.palm_signature, user.full_legal_name = palm_signature, full_legal_name
         user.birth_time, user.birth_location = birth_time, birth_location
         user.methods, user.photos = methods, ",".join(photo_urls)
+        
         db.commit()
         return {"message": "Success", "signature": palm_signature}
-    except Exception:
+    except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Database Error")
+        raise HTTPException(status_code=500, detail=f"Database Error: {str(e)}")
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
     clean_me = current_email.strip().lower()
+    
+    # "Ping" support for mobile server wake-up
+    if clean_me == "ping" or clean_me == "warmup":
+        return {"status": "ready"}
+
     me = db.query(User).filter(User.email == clean_me).first()
     if not me: raise HTTPException(status_code=404)
+    
     others = db.query(User).filter(User.email != me.email).all()
     results = []
 
-    # 1. Self Card
+    # 1. Self Card logic preserved
     self_seed = str(me.birthday) + (me.palm_signature or "SELF")
     random.seed(int(hashlib.md5(self_seed.encode()).hexdigest(), 16))
     results.append({
@@ -153,7 +177,6 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         random.seed(int(seed_hash, 16))
         tot = random.randint(65, 98)
         
-        # Symmetric Visibility: Button appears for both once mutual
         match_record = db.query(Match).filter(
             ((Match.user_a == me.email) & (Match.user_b == o.email) & (Match.is_mutual == True)) |
             ((Match.user_b == me.email) & (Match.user_a == o.email) & (Match.is_mutual == True))
@@ -171,13 +194,13 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
 
 @app.post("/like-profile")
 async def like_profile(my_email: str = Form(...), target_email: str = Form(...), db: Session = Depends(get_db)):
-    """Unlimited free likes."""
     my, target = my_email.lower().strip(), target_email.lower().strip()
     existing = db.query(Match).filter(Match.user_a == target, Match.user_b == my).first()
     if existing:
         existing.is_mutual = True
         db.commit()
         return {"status": "match"}
+    
     i_already_liked = db.query(Match).filter(Match.user_a == my, Match.user_b == target).first()
     if not i_already_liked:
         db.add(Match(user_a=my, user_b=target, is_mutual=False))
@@ -186,10 +209,9 @@ async def like_profile(my_email: str = Form(...), target_email: str = Form(...),
 
 @app.get("/chat-status")
 async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
-    """Acceptance Gate: Checks if user has accepted the 3rd person limit."""
     me, them = me.lower().strip(), them.lower().strip()
     
-    # Count unique engagements for the Dual-Paid Gate
+    # Dual-Paid Gate Logic (Engaged unique count)
     engaged_count = db.query(Match).filter(
         ((Match.user_a == me) & ((Match.user_a_accepted == True) | (Match.request_initiated_by == me))) |
         ((Match.user_b == me) & ((Match.user_b_accepted == True) | (Match.request_initiated_by == me)))
@@ -212,16 +234,8 @@ async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
 
 @app.post("/accept-chat")
 async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: bool = Form(False), db: Session = Depends(get_db)):
-    """Handles logic for free vs paid chat acceptances."""
     me, them = me.lower().strip(), them.lower().strip()
     
-    # Check engagement limit (3rd person costs money)
-    engaged_query = db.query(Match).filter(
-        ((Match.user_a == me) & ((Match.user_a_accepted == True) | (Match.request_initiated_by == me))) |
-        ((Match.user_b == me) & ((Match.user_b_accepted == True) | (Match.request_initiated_by == me)))
-    )
-    engaged_count = engaged_query.count()
-
     match = db.query(Match).filter(
         ((Match.user_a == me) & (Match.user_b == them)) |
         ((Match.user_b == me) & (Match.user_a == them))
@@ -229,18 +243,24 @@ async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: bool 
 
     if not match: raise HTTPException(status_code=404, detail="Match not found")
 
-    # Gate logic: if not already talking to this person and count >= 2, require payment
+    engaged_query = db.query(Match).filter(
+        ((Match.user_a == me) & ((Match.user_a_accepted == True) | (Match.request_initiated_by == me))) |
+        ((Match.user_b == me) & ((Match.user_b_accepted == True) | (Match.request_initiated_by == me)))
+    )
+    engaged_count = engaged_query.count()
+
     is_new_engagement = not ((match.user_a == me and match.user_a_accepted) or 
                              (match.user_b == me and match.user_b_accepted) or 
                              (match.request_initiated_by == me))
     
+    # Monetization: 3rd person limit
     if is_new_engagement and engaged_count >= 2 and not is_paid:
         return {"status": "payment_required", "engaged_count": engaged_count}
 
     if match.user_a == me: match.user_a_accepted = True
     else: match.user_b_accepted = True
     
-    if is_paid: match.is_unlocked = True # Mark as premium
+    if is_paid: match.is_unlocked = True 
     db.commit()
     return {"status": "accepted"}
 
@@ -254,7 +274,7 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
 
     if not match: raise HTTPException(status_code=403, detail="Mutual match required.")
 
-    # Nuclear filter bypass if is_unlocked
+    # Nuclear filter bypass if premium is paid
     if not match.is_unlocked:
         prompt = f"Reply ONLY 'LEAK' or 'SAFE': {content}"
         ai_resp = ai_model.generate_content(prompt).text.strip().upper()
