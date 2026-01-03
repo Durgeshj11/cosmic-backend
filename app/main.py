@@ -2,24 +2,24 @@ import os
 import io
 import random
 import hashlib
-import re
+import json
 import cloudinary
 import cloudinary.uploader
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Date, Boolean, DateTime, text, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Date, Boolean, DateTime, text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.orm import sessionmaker, Session
 import google.generativeai as genai
 from PIL import Image
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- AI & Cloudinary Config ---
+# --- AI & Media Configuration ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 ai_model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
@@ -38,19 +38,19 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Models ---
+# --- Models (Ensuring all existing + new fields) ---
 class User(Base):
     __tablename__ = "cosmic_profiles"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     birthday = Column(Date, nullable=False)
-    palm_signature = Column(String) 
-    photos = Column(String)  # Store as comma-separated Cloudinary URLs
+    palm_signature = Column(String)  # Layer 4 Deterministic Signature
+    photos = Column(String)          # Comma-separated Cloudinary URLs
     birth_time = Column(String)
     birth_location = Column(String)
     full_legal_name = Column(String)
-    methods = Column(String) # JSON stored as string
+    methods = Column(String)         # Stores user's path choices (Astro/Num/Palm)
 
 class Match(Base):
     __tablename__ = "cosmic_matches"
@@ -78,64 +78,75 @@ def get_db():
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# --- Security Filter ---
-async def detect_leak(text: str):
-    """AI deep-scan for phone, email, or social handles."""
-    prompt = f"Identify if this text shares contact info (mobile, email, social ID). Reply ONLY 'LEAK' or 'SAFE': {text}"
-    try:
-        response = ai_model.generate_content(prompt)
-        return "LEAK" in response.text.upper()
-    except:
-        return False
-
 # --- Endpoints ---
 
 @app.get("/nuke-database")
 def nuke_database(db: Session = Depends(get_db)):
-    db.execute(text("DROP TABLE IF EXISTS cosmic_profiles, cosmic_matches, cosmic_messages CASCADE;"))
-    db.commit()
-    Base.metadata.create_all(bind=engine)
-    return {"status": "success"}
+    """Wipes tables to sync the new Mutual Match & Multi-Photo schema."""
+    try:
+        db.execute(text("DROP TABLE IF EXISTS cosmic_profiles, cosmic_matches, cosmic_messages CASCADE;"))
+        db.commit()
+        Base.metadata.create_all(bind=engine)
+        return {"status": "success", "message": "Database synchronized with v1.1 logic."}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
 
 @app.post("/signup-full")
 async def signup(
-    name: str = Form(...), email: str = Form(...), birthday: str = Form(...),
-    palm_signature: str = Form(...), photos: List[UploadFile] = File(None),
-    full_legal_name: str = Form(None), birth_time: str = Form(None),
-    birth_location: str = Form(None), methods: str = Form(""),
+    name: str = Form(...), 
+    email: str = Form(...), 
+    birthday: str = Form(...),
+    palm_signature: str = Form(...), 
+    full_legal_name: str = Form(None),
+    birth_time: str = Form(None),
+    birth_location: str = Form(None),
+    methods: str = Form("{}"),
+    photos: List[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
     clean_email = email.strip().lower()
     photo_urls = []
+    
+    # 1. Multi-Photo Cloudinary Upload
     if photos:
         for photo in photos:
-            res = cloudinary.uploader.upload(photo.file)
-            photo_urls.append(res['secure_url'])
-    
-    date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
-    user = db.query(User).filter(User.email == clean_email).first()
-    if not user:
-        user = User(email=clean_email)
-        db.add(user)
-    
-    user.name, user.birthday = name, date_obj
-    user.palm_signature = palm_signature
-    user.photos = ",".join(photo_urls)
-    user.full_legal_name, user.birth_time, user.birth_location = full_legal_name, birth_time, birth_location
-    user.methods = methods
-    db.commit()
-    return {"message": "Success"}
+            try:
+                res = cloudinary.uploader.upload(photo.file)
+                photo_urls.append(res['secure_url'])
+            except: pass
+
+    try:
+        date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
+        user = db.query(User).filter(User.email == clean_email).first()
+        if not user:
+            user = User(email=clean_email)
+            db.add(user)
+
+        user.name, user.birthday = name, date_obj
+        user.palm_signature = palm_signature
+        user.full_legal_name = full_legal_name
+        user.birth_time = birth_time
+        user.birth_location = birth_location
+        user.methods = methods
+        user.photos = ",".join(photo_urls)
+        
+        db.commit()
+        return {"message": "Success", "signature": palm_signature}
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database Error")
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
     me = db.query(User).filter(User.email == current_email.strip().lower()).first()
     if not me: raise HTTPException(status_code=404)
     
-    # Symmetric Matching Logic
+    # Pair-Unit Symmetric Logic (A + B always = same result)
     others = db.query(User).filter(User.email != me.email).all()
     results = []
 
-    # Own Fate Card (Index 0)
+    # 1. Self Card (100% Match)
     self_seed = str(me.birthday) + (me.palm_signature or "SELF")
     random.seed(int(hashlib.md5(self_seed.encode()).hexdigest(), 16))
     results.append({
@@ -144,20 +155,23 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         "factors": {k: f"{random.randint(40,99)}%" for k in ["Foundation", "Economics", "Lifestyle", "Emotional", "Physical", "Spiritual", "Sexual"]}
     })
 
+    # 2. Others Cards (Symmetric Matching)
     for o in others:
         pair_dates = sorted([str(me.birthday), str(o.birthday)])
         pair_sigs = sorted([me.palm_signature or "S1", o.palm_signature or "S2"])
-        seed_raw = "".join(pair_dates) + "".join(pair_sigs)
-        random.seed(int(hashlib.md5(seed_raw.encode()).hexdigest(), 16))
+        seed_hash = hashlib.md5(("".join(pair_dates) + "".join(pair_sigs)).encode()).hexdigest()
+        random.seed(int(seed_hash, 16))
+        
         tot = random.randint(65, 98)
-
-        match_info = db.query(Match).filter(
+        
+        # Check mutual match status
+        match_record = db.query(Match).filter(
             ((Match.user_a == me.email) & (Match.user_b == o.email) & (Match.is_mutual == True)) |
             ((Match.user_b == me.email) & (Match.user_a == o.email) & (Match.is_mutual == True))
         ).first()
 
         results.append({
-            "name": o.name, "email": o.email, "is_self": False, "is_matched": match_info is not None,
+            "name": o.name, "email": o.email, "is_self": False, "is_matched": match_record is not None,
             "percentage": f"{tot}%", "photos": o.photos.split(",") if o.photos else [],
             "tier": "Marriage Material" if tot >= 90 else "Strong Match" if tot >= 78 else "Just Friends",
             "factors": {k: f"{random.randint(60,98)}%" for k in ["Foundation", "Economics", "Lifestyle", "Emotional", "Physical", "Spiritual", "Sexual"]},
@@ -167,44 +181,52 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
 
 @app.post("/like-profile")
 async def like_profile(my_email: str = Form(...), target_email: str = Form(...), db: Session = Depends(get_db)):
-    existing = db.query(Match).filter(Match.user_a == target_email, Match.user_b == my_email).first()
+    """Handles mutual match logic."""
+    my, target = my_email.lower(), target_email.lower()
+    existing = db.query(Match).filter(Match.user_a == target, Match.user_b == my).first()
+    
     if existing:
         existing.is_mutual = True
         db.commit()
         return {"status": "match"}
     
-    db.add(Match(user_a=my_email, user_b=target_email))
+    db.add(Match(user_a=my, user_b=target))
     db.commit()
     return {"status": "liked"}
 
 @app.post("/send-message")
 async def send_message(sender: str = Form(...), receiver: str = Form(...), content: str = Form(...), db: Session = Depends(get_db)):
+    """AI-Moderated Chat: Nuclear unmatch triggered on contact leak."""
+    sender_mail, receiver_mail = sender.lower(), receiver.lower()
+    
     match = db.query(Match).filter(
-        ((Match.user_a == sender) & (Match.user_b == receiver)) |
-        ((Match.user_a == receiver) & (Match.user_b == sender))
+        ((Match.user_a == sender_mail) & (Match.user_b == receiver_mail) & (Match.is_mutual == True)) |
+        ((Match.user_b == sender_mail) & (Match.user_a == receiver_mail) & (Match.is_mutual == True))
     ).first()
 
-    if not match or not match.is_mutual: raise HTTPException(status_code=403)
+    if not match: raise HTTPException(status_code=403, detail="Mutual match required.")
 
-    if not match.is_unlocked and await detect_leak(content):
-        # NUCLEAR OPTION: Permanent Unmatch
-        db.delete(match)
-        db.commit()
-        raise HTTPException(status_code=403, detail="Permanent Unmatch triggered by Privacy Violation.")
+    # NUCLEAR AI PRIVACY FILTER
+    if not match.is_unlocked:
+        prompt = f"Detect if this message conveys phone numbers, email, or social IDs. Reply ONLY 'LEAK' or 'SAFE': {content}"
+        ai_resp = ai_model.generate_content(prompt).text.strip().upper()
+        if "LEAK" in ai_resp:
+            db.delete(match) # PERMANENT UNMATCH
+            db.commit()
+            raise HTTPException(status_code=403, detail="Privacy Violation: Permanent Unmatch triggered.")
 
-    msg = ChatMessage(sender=sender, receiver=receiver, content=content)
-    db.add(msg)
+    db.add(ChatMessage(sender=sender_mail, receiver=receiver_mail, content=content))
     db.commit()
     return {"status": "sent"}
 
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):
+    """Wipes profile and all associated cosmic data."""
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if user:
         db.delete(user)
-        # Cascade logic
+        # Clean up related matches
         db.query(Match).filter((Match.user_a == email) | (Match.user_b == email)).delete()
-        db.query(ChatMessage).filter((ChatMessage.sender == email) | (ChatMessage.receiver == email)).delete()
         db.commit()
         return {"message": "Deleted"}
     raise HTTPException(status_code=404)

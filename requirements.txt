@@ -3,19 +3,20 @@
 # =====================================================
 fastapi==0.110.0
 uvicorn==0.27.1
+# Required for handling multiple photo files and form data
 python-multipart==0.0.9
 pydantic==2.6.3
 
 # =====================================================
 # AI & Image Processing (The "Voice" Layer)
-# Used ONLY for descriptive readings & explanations.
-# Match % and destiny are frontend-seeded & deterministic.
+# Used for the "Nuclear" Privacy Shield & descriptive readings.
 # =====================================================
 google-generativeai==0.4.1
 Pillow==10.2.0
 
 # =====================================================
 # Database & Environment (The Memory)
+# Handles Cosmic Profiles, Matches, and Secure Messages.
 # =====================================================
 sqlalchemy==2.0.28
 psycopg2-binary==2.9.9
@@ -23,8 +24,7 @@ python-dotenv==1.0.1
 
 # =====================================================
 # Async, Compatibility & Math (The Engine)
-# Required for FastAPI internals, deterministic scaling,
-# and symmetric pair-unit calculations
+# Supports deterministic seeding for symmetric match scores.
 # =====================================================
 anyio==4.3.0
 typing-extensions==4.10.0
@@ -32,16 +32,17 @@ numpy==1.26.4
 
 # =====================================================
 # Chat, Moderation & Realtime Stability
-# (Pinned to avoid production drift)
+# Core for the AI-moderated chat logic.
 # =====================================================
 starlette==0.36.3
 
 # =====================================================
-# Media Storage (Profile Photos & Moderation Review)
+# Media Storage (Profile Photo Gallery)
+# Stores and serves multiple profile images.
 # =====================================================
 cloudinary==1.39.0
 
 # =====================================================
-# Admin Moderation, Scoring & Background Tasks
+# Background Tasks & Scheduling
 # =====================================================
 apscheduler==3.10.4
