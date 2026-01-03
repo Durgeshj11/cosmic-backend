@@ -57,7 +57,7 @@ class Match(Base):
     user_a = Column(String, index=True) 
     user_b = Column(String, index=True) 
     is_mutual = Column(Boolean, default=False)
-    is_unlocked = Column(Boolean, default=False) 
+    is_unlocked = Column(Boolean, default=False) # Bypasses AI Filter
     user_a_accepted = Column(Boolean, default=False)
     user_b_accepted = Column(Boolean, default=False)
     request_initiated_by = Column(String) 
@@ -79,7 +79,7 @@ def get_db():
 
 app = FastAPI()
 
-# --- HIGH STABILITY CORS (FOR iOS/ANDROID/WEB) ---
+# --- HIGH STABILITY CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -88,6 +88,22 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With", "Access-Control-Allow-Origin"],
     max_age=600, 
 )
+
+# --- Helper Logic for Cosmic Data ---
+def get_sun_sign(day, month):
+    signs = [
+        (20, "Capricorn"), (19, "Aquarius"), (20, "Pisces"), (20, "Aries"),
+        (21, "Taurus"), (21, "Gemini"), (22, "Cancer"), (23, "Leo"),
+        (23, "Virgo"), (23, "Libra"), (22, "Scorpio"), (22, "Sagittarius")
+    ]
+    return signs[month-1][1] if day > signs[month-1][0] else signs[month-2][1]
+
+def get_life_path(dob_str):
+    nums = [int(d) for d in dob_str if d.isdigit()]
+    total = sum(nums)
+    while total > 9:
+        total = sum(int(d) for d in str(total))
+    return total
 
 # --- Endpoints ---
 
@@ -146,16 +162,12 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     others = db.query(User).filter(User.email != me.email).all()
     results = []
 
-    # 1. Self Card
-    self_seed = str(me.birthday) + (me.palm_signature or "SELF")
-    random.seed(int(hashlib.md5(self_seed.encode()).hexdigest(), 16))
-    results.append({
-        "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email,
-        "photos": me.photos.split(",") if me.photos else [],
-        "factors": {k: f"{random.randint(40,99)}%" for k in ["Foundation", "Economics", "Lifestyle", "Emotional", "Physical", "Spiritual", "Sexual"]}
-    })
+    # THE 12 COSMIC POINTS
+    factor_labels = [
+        "Health", "Power", "Creativity", "Social", "Emotional", "Mental",
+        "Lifestyle", "Spiritual", "Sexual", "Family", "Economic", "Foundation"
+    ]
 
-    # 2. Match Feed
     for o in others:
         pair_dates = sorted([str(me.birthday), str(o.birthday)])
         pair_sigs = sorted([me.palm_signature or "S1", o.palm_signature or "S2"])
@@ -172,8 +184,10 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             "name": o.name, "email": o.email, "is_self": False, 
             "is_matched": match_record is not None, 
             "percentage": f"{tot}%", "photos": o.photos.split(",") if o.photos else [],
+            "sun_sign": get_sun_sign(o.birthday.day, o.birthday.month),
+            "life_path": get_life_path(str(o.birthday)),
             "tier": "Marriage Material" if tot >= 90 else "Strong Match",
-            "factors": {k: f"{random.randint(60,98)}%" for k in ["Foundation", "Economics", "Lifestyle", "Emotional", "Physical", "Spiritual", "Sexual"]},
+            "factors": {k: f"{random.randint(60,98)}%" for k in factor_labels},
             "reading": "Shared destiny updated based on real palm evolution."
         })
     return results
@@ -193,7 +207,6 @@ async def like_profile(my_email: str = Form(...), target_email: str = Form(...),
         db.commit()
     return {"status": "liked"}
 
-# --- FIXED SYMMETRIC CHAT GATE ---
 @app.get("/chat-status")
 async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
@@ -237,7 +250,6 @@ async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: bool 
     db.commit()
     return {"status": "accepted"}
 
-# --- NEW: FETCH MESSAGES (Ensures Hi reaches both) ---
 @app.get("/messages")
 async def get_messages(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
