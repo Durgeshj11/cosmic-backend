@@ -37,7 +37,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Models ---
+# --- Models (Updated for Dual-Paid Gating & Acceptance) ---
 class User(Base):
     __tablename__ = "cosmic_profiles"
     id = Column(Integer, primary_key=True, index=True)
@@ -57,10 +57,12 @@ class Match(Base):
     user_a = Column(String, index=True) 
     user_b = Column(String, index=True) 
     is_mutual = Column(Boolean, default=False)
-    is_unlocked = Column(Boolean, default=False) 
+    is_unlocked = Column(Boolean, default=False) # Global Unlock (Bypasses AI Filter)
+    
+    # NEW: Tracking for Dual-Paid Gate & Acceptance
     user_a_accepted = Column(Boolean, default=False)
     user_b_accepted = Column(Boolean, default=False)
-    request_initiated_by = Column(String) 
+    request_initiated_by = Column(String) # Track who started the chat request
 
 class ChatMessage(Base):
     __tablename__ = "cosmic_messages"
@@ -86,7 +88,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS", "DELETE"],
-    allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With"],
+    allow_headers=["Content-Type", "Authorization", "Accept", "Origin", "X-Requested-With", "Access-Control-Allow-Origin"],
     max_age=600, 
 )
 
@@ -114,11 +116,10 @@ async def signup(
     clean_email = email.strip().lower()
     photo_urls = []
     
-    # Cloudinary Upload logic preserved
     if photos:
         for photo in photos:
             try:
-                # Optimized for mobile byte-stream
+                # Optimized for mobile byte-stream to prevent upload timeouts
                 file_content = await photo.read()
                 res = cloudinary.uploader.upload(file_content)
                 photo_urls.append(res['secure_url'])
@@ -253,14 +254,14 @@ async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: bool 
                              (match.user_b == me and match.user_b_accepted) or 
                              (match.request_initiated_by == me))
     
-    # Monetization: 3rd person limit
+    # Monetization: 3rd unique person limit logic preserved
     if is_new_engagement and engaged_count >= 2 and not is_paid:
         return {"status": "payment_required", "engaged_count": engaged_count}
 
     if match.user_a == me: match.user_a_accepted = True
     else: match.user_b_accepted = True
     
-    if is_paid: match.is_unlocked = True 
+    if is_paid: match.is_unlocked = True # Premium permanent unlock
     db.commit()
     return {"status": "accepted"}
 
