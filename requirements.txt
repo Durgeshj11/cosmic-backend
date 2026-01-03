@@ -8,9 +8,9 @@ pydantic==2.6.3
 
 # =====================================================
 # AI & Image Processing (The "Voice" Layer)
+# Used ONLY for descriptive readings & explanations.
+# Match % and destiny are frontend-seeded & deterministic.
 # =====================================================
-# Used ONLY for generating poetic readings/explanations.
-# The match % is seeded by the Frontend Signature instead.
 google-generativeai==0.4.1
 Pillow==10.2.0
 
@@ -23,8 +23,25 @@ python-dotenv==1.0.1
 
 # =====================================================
 # Async, Compatibility & Math (The Engine)
+# Required for FastAPI internals, deterministic scaling,
+# and symmetric pair-unit calculations
 # =====================================================
 anyio==4.3.0
 typing-extensions==4.10.0
-# Necessary for deterministic seeding and symmetric match scaling
 numpy==1.26.4
+
+# =====================================================
+# Chat, Moderation & Realtime Stability
+# (Pinned to avoid production drift)
+# =====================================================
+starlette==0.36.3
+
+# =====================================================
+# Media Storage (Profile Photos & Moderation Review)
+# =====================================================
+cloudinary==1.39.0
+
+# =====================================================
+# Admin Moderation, Scoring & Background Tasks
+# =====================================================
+apscheduler==3.10.4

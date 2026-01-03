@@ -126,7 +126,7 @@ async def signup(
             db.add(user)
 
         user.name, user.birthday = name, date_obj
-        user.palm_signature = palm_signature # Seed for Biometric Stability
+        user.palm_signature = palm_signature
         user.palm_analysis = reading
         user.astro_pref, user.num_pref = astro_pref, num_pref
         user.method_choice = method_choice
@@ -134,17 +134,16 @@ async def signup(
         
         db.commit()
         return {"message": "Success", "signature": palm_signature}
-    except Exception as e:
+    except Exception:
         db.rollback()
         raise HTTPException(status_code=500, detail="Database Error")
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
     me = db.query(User).filter(User.email == current_email.strip().lower()).first()
-    if not me: raise HTTPException(status_code=404, detail="User Not Found")
+    if not me:
+        raise HTTPException(status_code=404, detail="User Not Found")
     
-    # --- 1. CALCULATE INDIVIDUAL FATE (SELF) AT INDEX 0 ---
-    # Seed based ONLY on the individual's markers
     self_seed = str(me.birthday) + (me.palm_signature or "SELF_SEED")
     self_hash = hashlib.md5(self_seed.encode()).hexdigest()
     random.seed(int(self_hash, 16))
@@ -166,41 +165,24 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         },
         "is_self": True
     }
-    random.seed(None) # Clear seed
+    random.seed(None)
 
-    # --- 2. CALCULATE MATCHES (OTHERS) ---
     others = db.query(User).filter(User.email != me.email).all()
     match_results = []
 
     for other in others:
-        # PAIR-UNIT SYMMETRIC SEEDING: sorting inputs ensures Symmetry (A+B = B+A)
         dates = sorted([str(me.birthday), str(other.birthday)])
         sigs = sorted([me.palm_signature or "S1", other.palm_signature or "S2"])
-        
-        seed_raw = "".join(dates) + "".join(sigs)
-        seed_hash = hashlib.md5(seed_raw.encode()).hexdigest()
-        
+        seed_hash = hashlib.md5(("".join(dates) + "".join(sigs)).encode()).hexdigest()
         random.seed(int(seed_hash, 16))
         tot = random.randint(65, 98)
-        
-        # Determine Accuracy Scaling
-        has_astro = (me.birth_time and me.birth_location) or (other.birth_time and other.birth_location)
-        has_num = me.full_legal_name or other.full_legal_name
-        
-        quality = "Base Accuracy (Palm)"
-        if "Mix" in me.method_choice and has_astro and has_num:
-            quality = "Ultimate Accuracy (Triple Path)"
-        elif "Astro" in me.method_choice and has_astro:
-            quality = "High Accuracy (Astrology Enhanced)"
-        elif "Num" in me.method_choice and has_num:
-            quality = "High Accuracy (Numerology Enhanced)"
 
         match_results.append({
-            "name": other.name, 
+            "name": other.name,
             "percentage": f"{tot}%",
             "tier": "Marriage Material" if tot >= 90 else "Strong Match" if tot >= 78 else "Just Friends",
-            "accuracy_level": quality,
-            "reading": "Biometric update detected -> Shared destiny recalculated for the pair." if me.palm_signature else "Connection stable.",
+            "accuracy_level": "Base Accuracy (Palm)",
+            "reading": "Biometric update detected -> Shared destiny recalculated for the pair.",
             "factors": {
                 "Foundation": f"{random.randint(60, 95)}%",
                 "Economics": f"{random.randint(60, 95)}%",
@@ -213,16 +195,130 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             "is_self": False
         })
         random.seed(None)
-        
-    # Return Self Fate at Index 0 followed by matches to support frontend slide deck
+
     return [self_results] + match_results
 
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):
-    """Wipes profile to support account management from frontend account menu."""
     user = db.query(User).filter(User.email == email.strip().lower()).first()
     if user:
         db.delete(user)
         db.commit()
         return {"message": "Deleted"}
     raise HTTPException(status_code=404)
+
+# =====================================================
+# ADDITIONS — MATCH CHAT, MODERATION, ADMIN
+# =====================================================
+
+import re
+from fastapi import Header
+
+ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "admin-secret")
+
+class Like(Base):
+    __tablename__ = "likes"
+    id = Column(Integer, primary_key=True)
+    from_user = Column(Integer)
+    to_user = Column(Integer)
+
+class Match(Base):
+    __tablename__ = "matches"
+    id = Column(Integer, primary_key=True)
+    user_a = Column(Integer)
+    user_b = Column(Integer)
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    id = Column(Integer, primary_key=True)
+    user_a = Column(Integer)
+    user_b = Column(Integer)
+    sender = Column(Integer)
+    message = Column(String)
+    timestamp = Column(String)
+
+class FlaggedMessage(Base):
+    __tablename__ = "flagged_messages"
+    id = Column(Integer, primary_key=True)
+    user_a = Column(Integer)
+    user_b = Column(Integer)
+    sender = Column(Integer)
+    message = Column(String)
+    reason = Column(String)
+    timestamp = Column(String)
+
+class ModerationScore(Base):
+    __tablename__ = "moderation_scores"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, unique=True)
+    score = Column(Integer, default=0)
+    last_violation = Column(String)
+
+class BannedUser(Base):
+    __tablename__ = "banned_users"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    reason = Column(String)
+
+Base.metadata.create_all(bind=engine)
+
+CONTACT_REGEX = re.compile(
+    r"(\b\d{10}\b|\+?\d{1,3}[\s\-]?\d{6,}|@[\w]+|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b)",
+    re.IGNORECASE,
+)
+
+def require_admin(x_admin_key: str = Header(None)):
+    if x_admin_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+def apply_violation(db, user_id, points, reason):
+    rec = db.query(ModerationScore).filter_by(user_id=user_id).first()
+    if not rec:
+        rec = ModerationScore(user_id=user_id, score=0)
+        db.add(rec)
+    rec.score += points
+    rec.last_violation = datetime.utcnow().isoformat()
+    if rec.score >= 25:
+        db.add(BannedUser(user_id=user_id, reason="Permanent ban"))
+    db.commit()
+
+@app.post("/chat/send")
+async def send_chat(
+    from_id: int = Form(...),
+    to_id: int = Form(...),
+    message: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    pair = db.query(Match).filter(
+        Match.user_a == min(from_id, to_id),
+        Match.user_b == max(from_id, to_id),
+    ).first()
+    if not pair:
+        raise HTTPException(403, "Chat allowed only after mutual match")
+
+    if db.query(BannedUser).filter_by(user_id=from_id).first():
+        raise HTTPException(403, "User banned")
+
+    if CONTACT_REGEX.search(message):
+        apply_violation(db, from_id, 5, "Contact sharing")
+        raise HTTPException(403, "Contact sharing blocked")
+
+    db.add(ChatMessage(
+        user_a=min(from_id, to_id),
+        user_b=max(from_id, to_id),
+        sender=from_id,
+        message=message,
+        timestamp=datetime.utcnow().isoformat()
+    ))
+    db.commit()
+    return {"sent": True}
+
+@app.get("/admin/stats", dependencies=[Depends(require_admin)])
+def admin_stats(db: Session = Depends(get_db)):
+    return {
+        "users": db.query(User).count(),
+        "matches": db.query(Match).count(),
+        "messages": db.query(ChatMessage).count(),
+        "flagged": db.query(FlaggedMessage).count(),
+        "banned": db.query(BannedUser).count(),
+    }
