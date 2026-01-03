@@ -38,7 +38,7 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Models (Ensuring all existing + new fields) ---
+# --- Models (All Original Functionalities Preserved) ---
 class User(Base):
     __tablename__ = "cosmic_profiles"
     id = Column(Integer, primary_key=True, index=True)
@@ -80,9 +80,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 
 # --- Endpoints ---
 
-@app.get("/nuke-database")
+@app.api_route("/nuke-database", methods=["GET", "POST"])
 def nuke_database(db: Session = Depends(get_db)):
-    """Wipes tables to sync the new Mutual Match & Multi-Photo schema."""
+    """Wipes tables to sync schema without 405 errors."""
     try:
         db.execute(text("DROP TABLE IF EXISTS cosmic_profiles, cosmic_matches, cosmic_messages CASCADE;"))
         db.commit()
@@ -105,10 +105,9 @@ async def signup(
     photos: List[UploadFile] = File(None),
     db: Session = Depends(get_db)
 ):
-    clean_email = email.strip().lower()
+    clean_email = email.strip().lower() # Space stripping added
     photo_urls = []
     
-    # 1. Multi-Photo Cloudinary Upload
     if photos:
         for photo in photos:
             try:
@@ -139,23 +138,23 @@ async def signup(
 
 @app.get("/feed")
 async def get_feed(current_email: str, db: Session = Depends(get_db)):
-    me = db.query(User).filter(User.email == current_email.strip().lower()).first()
+    clean_me = current_email.strip().lower()
+    me = db.query(User).filter(User.email == clean_me).first()
     if not me: raise HTTPException(status_code=404)
     
-    # Pair-Unit Symmetric Logic (A + B always = same result)
     others = db.query(User).filter(User.email != me.email).all()
     results = []
 
-    # 1. Self Card (100% Match)
+    # 1. Self Card (Symmetric Scoring)
     self_seed = str(me.birthday) + (me.palm_signature or "SELF")
     random.seed(int(hashlib.md5(self_seed.encode()).hexdigest(), 16))
     results.append({
-        "name": "YOUR DESTINY", "percentage": "100%", "is_self": True,
+        "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email,
         "photos": me.photos.split(",") if me.photos else [],
         "factors": {k: f"{random.randint(40,99)}%" for k in ["Foundation", "Economics", "Lifestyle", "Emotional", "Physical", "Spiritual", "Sexual"]}
     })
 
-    # 2. Others Cards (Symmetric Matching)
+    # 2. Others Cards (Mutual Match Visibility Logic)
     for o in others:
         pair_dates = sorted([str(me.birthday), str(o.birthday)])
         pair_sigs = sorted([me.palm_signature or "S1", o.palm_signature or "S2"])
@@ -164,14 +163,15 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         
         tot = random.randint(65, 98)
         
-        # Check mutual match status
+        # Check if a mutual match exists in either direction
         match_record = db.query(Match).filter(
             ((Match.user_a == me.email) & (Match.user_b == o.email) & (Match.is_mutual == True)) |
             ((Match.user_b == me.email) & (Match.user_a == o.email) & (Match.is_mutual == True))
         ).first()
 
         results.append({
-            "name": o.name, "email": o.email, "is_self": False, "is_matched": match_record is not None,
+            "name": o.name, "email": o.email, "is_self": False, 
+            "is_matched": match_record is not None, # Triggers frontend CHAT button
             "percentage": f"{tot}%", "photos": o.photos.split(",") if o.photos else [],
             "tier": "Marriage Material" if tot >= 90 else "Strong Match" if tot >= 78 else "Just Friends",
             "factors": {k: f"{random.randint(60,98)}%" for k in ["Foundation", "Economics", "Lifestyle", "Emotional", "Physical", "Spiritual", "Sexual"]},
@@ -181,23 +181,29 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
 
 @app.post("/like-profile")
 async def like_profile(my_email: str = Form(...), target_email: str = Form(...), db: Session = Depends(get_db)):
-    """Handles mutual match logic."""
-    my, target = my_email.lower(), target_email.lower()
+    """Instant Mutual Match Upgrade Logic."""
+    my, target = my_email.lower().strip(), target_email.lower().strip()
+    
+    # Check if target already liked me
     existing = db.query(Match).filter(Match.user_a == target, Match.user_b == my).first()
     
     if existing:
-        existing.is_mutual = True
+        existing.is_mutual = True # Upgrade to mutual
         db.commit()
         return {"status": "match"}
     
-    db.add(Match(user_a=my, user_b=target))
-    db.commit()
+    # Check if I already liked them to prevent duplicates
+    i_already_liked = db.query(Match).filter(Match.user_a == my, Match.user_b == target).first()
+    if not i_already_liked:
+        db.add(Match(user_a=my, user_b=target, is_mutual=False))
+        db.commit()
+        
     return {"status": "liked"}
 
 @app.post("/send-message")
 async def send_message(sender: str = Form(...), receiver: str = Form(...), content: str = Form(...), db: Session = Depends(get_db)):
     """AI-Moderated Chat: Nuclear unmatch triggered on contact leak."""
-    sender_mail, receiver_mail = sender.lower(), receiver.lower()
+    sender_mail, receiver_mail = sender.lower().strip(), receiver.lower().strip()
     
     match = db.query(Match).filter(
         ((Match.user_a == sender_mail) & (Match.user_b == receiver_mail) & (Match.is_mutual == True)) |
@@ -211,7 +217,7 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
         prompt = f"Detect if this message conveys phone numbers, email, or social IDs. Reply ONLY 'LEAK' or 'SAFE': {content}"
         ai_resp = ai_model.generate_content(prompt).text.strip().upper()
         if "LEAK" in ai_resp:
-            db.delete(match) # PERMANENT UNMATCH
+            db.delete(match) # PERMANENT UNMATCH triggered
             db.commit()
             raise HTTPException(status_code=403, detail="Privacy Violation: Permanent Unmatch triggered.")
 
@@ -221,12 +227,13 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
 
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):
-    """Wipes profile and all associated cosmic data."""
-    user = db.query(User).filter(User.email == email.strip().lower()).first()
+    """Wipes profile and all associated data."""
+    clean_email = email.strip().lower()
+    user = db.query(User).filter(User.email == clean_email).first()
     if user:
         db.delete(user)
-        # Clean up related matches
-        db.query(Match).filter((Match.user_a == email) | (Match.user_b == email)).delete()
+        # Wipe all match history for this user
+        db.query(Match).filter((Match.user_a == clean_email) | (Match.user_b == clean_email)).delete()
         db.commit()
         return {"message": "Deleted"}
     raise HTTPException(status_code=404)
