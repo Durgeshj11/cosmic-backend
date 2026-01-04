@@ -61,6 +61,7 @@ class Match(Base):
     user_a_accepted = Column(Boolean, default=False)
     user_b_accepted = Column(Boolean, default=False)
     request_initiated_by = Column(String) 
+    # Typing tracking
     user_a_typing = Column(Boolean, default=False)
     user_b_typing = Column(Boolean, default=False)
 
@@ -70,7 +71,7 @@ class ChatMessage(Base):
     sender = Column(String)
     receiver = Column(String)
     content = Column(String)
-    is_read = Column(Boolean, default=False)
+    is_read = Column(Boolean, default=False) # Read Receipts
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
@@ -82,6 +83,7 @@ def get_db():
 
 app = FastAPI()
 
+# --- HIGH STABILITY CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -91,7 +93,7 @@ app.add_middleware(
     max_age=600, 
 )
 
-# --- CORRECTED ZODIAC LOGIC ---
+# --- CORRECTED ZODIAC LOGIC (Western Standards) ---
 def get_sun_sign(day: int, month: int) -> str:
     zodiac_data = [
         (19, "Aquarius"), (18, "Pisces"), (20, "Aries"), (19, "Taurus"),
@@ -145,10 +147,11 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     factor_labels = ["Health", "Power", "Creativity", "Social", "Emotional", "Mental", "Lifestyle", "Spiritual", "Sexual", "Family", "Economic", "Foundation"]
     results = []
 
-    # 1. Self Card
+    # 1. YOUR BLUEPRINT (Symmetric Anchor)
     my_sign = get_sun_sign(me.birthday.day, me.birthday.month)
     my_path = get_life_path(str(me.birthday))
     random.seed(int(hashlib.md5((str(me.birthday) + (me.palm_signature or "S")).encode()).hexdigest(), 16))
+    
     results.append({
         "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, 
         "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path,
@@ -156,10 +159,10 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         "reading": f"Blueprint optimized for {my_sign} manifestation."
     })
 
-    # 2. Symmetric Pair-Unit Match Feed
+    # 2. SYMMETRIC PAIR-UNIT MATCH FEED
     others = db.query(User).filter(User.email != me.email).all()
     for o in others:
-        # Create symmetric anchor hash
+        # Create symmetric anchor hash (Rakhi + Mano == Mano + Rakhi)
         pair_emails = sorted([me.email, o.email])
         pair_palms = sorted([me.palm_signature or "P1", o.palm_signature or "P2"])
         pair_seed = hashlib.md5(("".join(pair_emails) + "".join(pair_palms)).encode()).hexdigest()
@@ -198,6 +201,7 @@ async def like_profile(my_email: str = Form(...), target_email: str = Form(...),
         db.commit()
     return {"status": "liked"}
 
+# --- REAL-TIME SYMMETRIC STATUS ---
 @app.get("/chat-status")
 async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
@@ -239,6 +243,7 @@ async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: str =
     db.commit()
     return {"status": "accepted"}
 
+# --- AGGRESSIVE SYMMETRIC MESSAGING ---
 @app.get("/messages")
 async def get_messages(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
@@ -251,6 +256,7 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
     match = db.query(Match).filter(((Match.user_a == s) & (Match.user_b == r) & (Match.is_mutual == True)) | ((Match.user_b == s) & (Match.user_a == r) & (Match.is_mutual == True))).first()
     if not match: raise HTTPException(status_code=403)
     if not match.is_unlocked:
+        # AI Privacy Filter logic
         if "LEAK" in ai_model.generate_content(f"Reply ONLY 'LEAK' or 'SAFE': {content}").text.strip().upper():
             db.delete(match); db.commit(); raise HTTPException(status_code=403)
     db.add(ChatMessage(sender=s, receiver=r, content=content))
