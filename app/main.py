@@ -7,6 +7,7 @@ import asyncio
 import cloudinary
 import cloudinary.uploader
 import redis.asyncio as aioredis
+import redis.exceptions # NEW: Required for Auth Error Handling
 from datetime import datetime
 from typing import List, Optional
 
@@ -37,6 +38,7 @@ cloudinary.config(
 # Initialize Firebase Admin for Billionaire Scale Notifications
 if not firebase_admin._apps:
     try:
+        # Load from environment variable for Render deployment
         fb_creds = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
         cred = credentials.Certificate(fb_creds)
         firebase_admin.initialize_app(cred)
@@ -91,18 +93,38 @@ class ChatMessage(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- REDIS SCALING MANAGER ---
+# --- ⚡ UPDATED REDIS MANAGER WITH AUTH PROTECTION ---
 class RedisConnectionManager:
     def __init__(self, redis_url: str):
-        self.redis = aioredis.from_url(redis_url, decode_responses=True)
-        self.local_connections: dict[str, WebSocket] = {}
+        if not redis_url:
+            print("CRITICAL: UPSTASH_REDIS_URL is missing.")
+            self.redis = None
+            self.local_connections = {}
+            return
+
+        # FORCE TLS: Upstash requires rediss:// for secure cloud scaling
+        if not redis_url.startswith(("redis://", "rediss://", "unix://")):
+            redis_url = f"rediss://{redis_url}"
+        elif redis_url.startswith("redis://"):
+            redis_url = redis_url.replace("redis://", "rediss://", 1)
+            
+        try:
+            self.redis = aioredis.from_url(redis_url, decode_responses=True)
+            self.local_connections: dict[str, WebSocket] = {}
+        except Exception as e:
+            print(f"Redis Setup Error: {e}")
+            self.redis = None
 
     async def connect(self, email: str, websocket: WebSocket):
         await websocket.accept()
+        if not self.redis:
+            await websocket.send_text(json.dumps({"type": "error", "message": "Redis Offline"}))
+            return
         self.local_connections[email] = websocket
         asyncio.create_task(self._redis_listener(email, websocket))
 
     async def _redis_listener(self, email: str, websocket: WebSocket):
+        if not self.redis: return
         pubsub = self.redis.pubsub()
         await pubsub.subscribe(email)
         try:
@@ -115,7 +137,14 @@ class RedisConnectionManager:
             await pubsub.unsubscribe(email)
 
     async def publish_update(self, email: str, data: dict):
-        await self.redis.publish(email, json.dumps(data))
+        """Symmetric Broadcast with Authentication Protection"""
+        if self.redis:
+            try:
+                await self.redis.publish(email, json.dumps(data))
+            except redis.exceptions.AuthenticationError:
+                print(f"AUTH ERROR: Check password for {email}")
+            except Exception as e:
+                print(f"Redis Broadcast Fail: {e}")
 
 manager = RedisConnectionManager(os.getenv("UPSTASH_REDIS_URL"))
 
@@ -126,7 +155,7 @@ def get_db():
 
 app = FastAPI()
 
-# --- UPDATED HIGH STABILITY CORS (EXPLICIT FOR FIREBASE WEB) ---
+# --- HIGH STABILITY CORS (EXPLICIT FOR FIREBASE WEB) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -288,7 +317,7 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
     db.add(ChatMessage(sender=s, receiver=r, content=content))
     db.commit()
     
-    # CRITICAL FIX: BROADCAST TO THE RECEIVER (r) CHANNEL
+    # Broadcast to Receiver Channel
     msg_payload = {"sender": s, "content": content, "is_read": False, "time": datetime.utcnow().isoformat()}
     await manager.publish_update(r, msg_payload)
     
