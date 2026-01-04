@@ -91,22 +91,12 @@ app.add_middleware(
     max_age=600, 
 )
 
-# --- CORRECTED ZODIAC LOGIC (Fixes Libra/Scorpio Issue) ---
+# --- CORRECTED ZODIAC LOGIC ---
 def get_sun_sign(day: int, month: int) -> str:
-    # Logic: index corresponds to the sign that STARTS in that month
     zodiac_data = [
-        (19, "Aquarius"),   # Jan (Month 1)
-        (18, "Pisces"),     # Feb
-        (20, "Aries"),      # Mar
-        (19, "Taurus"),     # Apr
-        (20, "Gemini"),     # May
-        (20, "Cancer"),     # Jun
-        (22, "Leo"),        # Jul
-        (22, "Virgo"),      # Aug
-        (22, "Libra"),      # Sep
-        (22, "Scorpio"),    # Oct
-        (21, "Sagittarius"),# Nov
-        (21, "Capricorn")   # Dec
+        (19, "Aquarius"), (18, "Pisces"), (20, "Aries"), (19, "Taurus"),
+        (20, "Gemini"), (20, "Cancer"), (22, "Leo"), (22, "Virgo"),
+        (22, "Libra"), (22, "Scorpio"), (21, "Sagittarius"), (21, "Capricorn")
     ]
     idx = month - 1
     if day > zodiac_data[idx][0]:
@@ -151,6 +141,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     if clean_me in ["ping", "warmup"]: return {"status": "ready"}
     me = db.query(User).filter(User.email == clean_me).first()
     if not me: raise HTTPException(status_code=404)
+    
     factor_labels = ["Health", "Power", "Creativity", "Social", "Emotional", "Mental", "Lifestyle", "Spiritual", "Sexual", "Family", "Economic", "Foundation"]
     results = []
 
@@ -159,22 +150,38 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     my_path = get_life_path(str(me.birthday))
     random.seed(int(hashlib.md5((str(me.birthday) + (me.palm_signature or "S")).encode()).hexdigest(), 16))
     results.append({
-        "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path,
+        "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, 
+        "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path,
         "factors": {f: {"score": f"{random.randint(85,99)}%", "why": f"Your {f} is amplified by your {my_sign} nature."} for f in factor_labels},
-        "reading": f"As a {my_sign} with Life Path {my_path}, your soul is in peak manifestation."
+        "reading": f"Blueprint optimized for {my_sign} manifestation."
     })
 
-    # 2. Others
+    # 2. Symmetric Pair-Unit Match Feed
     others = db.query(User).filter(User.email != me.email).all()
     for o in others:
-        o_sign = get_sun_sign(o.birthday.day, o.birthday.month)
-        o_path = get_life_path(str(o.birthday))
-        random.seed(int(hashlib.md5((str(me.birthday) + str(o.birthday)).encode()).hexdigest(), 16))
-        match_rec = db.query(Match).filter(((Match.user_a == me.email) & (Match.user_b == o.email) & (Match.is_mutual == True)) | ((Match.user_b == me.email) & (Match.user_a == o.email) & (Match.is_mutual == True))).first()
+        # Create symmetric anchor hash
+        pair_emails = sorted([me.email, o.email])
+        pair_palms = sorted([me.palm_signature or "P1", o.palm_signature or "P2"])
+        pair_seed = hashlib.md5(("".join(pair_emails) + "".join(pair_palms)).encode()).hexdigest()
+        random.seed(int(pair_seed, 16))
+        
+        match_score = random.randint(50, 98)
+        
+        # Determine Symmetric Tier
+        if match_score >= 90: tier = "MARRIAGE MATERIAL"
+        elif match_score >= 75: tier = "INTENSE FLING"
+        else: tier = "JUST FRIENDS"
+
+        match_rec = db.query(Match).filter(((Match.user_a == me.email) & (Match.user_b == o.email)) | ((Match.user_b == me.email) & (Match.user_a == o.email))).first()
+        is_mutual = match_rec.is_mutual if match_rec else False
+        has_liked = db.query(Match).filter(Match.user_a == me.email, Match.user_b == o.email).first() is not None
+
         results.append({
-            "name": o.name, "email": o.email, "is_self": False, "is_matched": match_rec is not None, "percentage": f"{random.randint(60, 98)}%", "photos": o.photos.split(",") if o.photos else [], "sun_sign": o_sign, "life_path": o_path, "tier": "Marriage Material" if random.randint(60, 98) >= 90 else "Strong Match",
-            "factors": {f: {"score": f"{random.randint(60,98)}%", "why": f"Your shared {f} is harmonized by {my_sign}-{o_sign} duality."} for f in factor_labels},
-            "reading": f"This {my_sign}-{o_sign} connection creates synergy for Path {my_path}+{o_path}."
+            "name": o.name, "email": o.email, "is_self": False, "is_matched": is_mutual, "has_liked": has_liked,
+            "percentage": f"{match_score}%", "tier": tier, "photos": o.photos.split(",") if o.photos else [], 
+            "sun_sign": get_sun_sign(o.birthday.day, o.birthday.month), "life_path": get_life_path(str(o.birthday)),
+            "factors": {f: {"score": f"{random.randint(50,98)}%", "why": f"Shared {f} synergy is locked by your combined biometric signatures."} for f in factor_labels},
+            "reading": f"Destiny Tier: {tier}. Any change in palm lines will propagate here instantly."
         })
     return results
 
