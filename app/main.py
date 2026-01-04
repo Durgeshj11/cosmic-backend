@@ -61,7 +61,6 @@ class Match(Base):
     user_a_accepted = Column(Boolean, default=False)
     user_b_accepted = Column(Boolean, default=False)
     request_initiated_by = Column(String) 
-    # NEW: Typing tracking
     user_a_typing = Column(Boolean, default=False)
     user_b_typing = Column(Boolean, default=False)
 
@@ -71,7 +70,7 @@ class ChatMessage(Base):
     sender = Column(String)
     receiver = Column(String)
     content = Column(String)
-    is_read = Column(Boolean, default=False) # NEW: Read Status
+    is_read = Column(Boolean, default=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
@@ -92,10 +91,28 @@ app.add_middleware(
     max_age=600, 
 )
 
-# --- Helper Logic ---
-def get_sun_sign(day, month):
-    signs = [(20, "Capricorn"), (19, "Aquarius"), (20, "Pisces"), (20, "Aries"), (21, "Taurus"), (21, "Gemini"), (22, "Cancer"), (23, "Leo"), (23, "Virgo"), (23, "Libra"), (22, "Scorpio"), (22, "Sagittarius")]
-    return signs[month-1][1] if day > signs[month-1][0] else signs[month-2][1]
+# --- CORRECTED ZODIAC LOGIC (Fixes Libra/Scorpio Issue) ---
+def get_sun_sign(day: int, month: int) -> str:
+    # Logic: index corresponds to the sign that STARTS in that month
+    zodiac_data = [
+        (19, "Aquarius"),   # Jan (Month 1)
+        (18, "Pisces"),     # Feb
+        (20, "Aries"),      # Mar
+        (19, "Taurus"),     # Apr
+        (20, "Gemini"),     # May
+        (20, "Cancer"),     # Jun
+        (22, "Leo"),        # Jul
+        (22, "Virgo"),      # Aug
+        (22, "Libra"),      # Sep
+        (22, "Scorpio"),    # Oct
+        (21, "Sagittarius"),# Nov
+        (21, "Capricorn")   # Dec
+    ]
+    idx = month - 1
+    if day > zodiac_data[idx][0]:
+        return zodiac_data[idx][1]
+    else:
+        return zodiac_data[(idx - 1) % 12][1]
 
 def get_life_path(dob_str):
     nums = [int(d) for d in dob_str if d.isdigit()]
@@ -138,7 +155,8 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     results = []
 
     # 1. Self Card
-    my_sign, my_path = get_sun_sign(me.birthday.day, me.birthday.month), get_life_path(str(me.birthday))
+    my_sign = get_sun_sign(me.birthday.day, me.birthday.month)
+    my_path = get_life_path(str(me.birthday))
     random.seed(int(hashlib.md5((str(me.birthday) + (me.palm_signature or "S")).encode()).hexdigest(), 16))
     results.append({
         "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path,
@@ -149,7 +167,8 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     # 2. Others
     others = db.query(User).filter(User.email != me.email).all()
     for o in others:
-        o_sign, o_path = get_sun_sign(o.birthday.day, o.birthday.month), get_life_path(str(o.birthday))
+        o_sign = get_sun_sign(o.birthday.day, o.birthday.month)
+        o_path = get_life_path(str(o.birthday))
         random.seed(int(hashlib.md5((str(me.birthday) + str(o.birthday)).encode()).hexdigest(), 16))
         match_rec = db.query(Match).filter(((Match.user_a == me.email) & (Match.user_b == o.email) & (Match.is_mutual == True)) | ((Match.user_b == me.email) & (Match.user_a == o.email) & (Match.is_mutual == True))).first()
         results.append({
@@ -172,7 +191,6 @@ async def like_profile(my_email: str = Form(...), target_email: str = Form(...),
         db.commit()
     return {"status": "liked"}
 
-# --- REAL-TIME SYMMETRIC STATUS ---
 @app.get("/chat-status")
 async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
@@ -214,7 +232,6 @@ async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: str =
     db.commit()
     return {"status": "accepted"}
 
-# --- AGGRESSIVE SYMMETRIC MESSAGING ---
 @app.get("/messages")
 async def get_messages(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
