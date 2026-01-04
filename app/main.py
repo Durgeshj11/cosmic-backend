@@ -7,7 +7,7 @@ import asyncio
 import cloudinary
 import cloudinary.uploader
 import redis.asyncio as aioredis
-import redis.exceptions # NEW: Required for Auth Error Handling
+import redis.exceptions # Required for Auth Error Handling
 from datetime import datetime
 from typing import List, Optional
 
@@ -38,7 +38,6 @@ cloudinary.config(
 # Initialize Firebase Admin for Billionaire Scale Notifications
 if not firebase_admin._apps:
     try:
-        # Load from environment variable for Render deployment
         fb_creds = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
         cred = credentials.Certificate(fb_creds)
         firebase_admin.initialize_app(cred)
@@ -93,7 +92,7 @@ class ChatMessage(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- ⚡ UPDATED REDIS MANAGER WITH AUTH PROTECTION ---
+# --- ⚡ UPDATED REDIS MANAGER (PROTOCOL PROTECTION & AUTH SHIELD) ---
 class RedisConnectionManager:
     def __init__(self, redis_url: str):
         if not redis_url:
@@ -155,7 +154,7 @@ def get_db():
 
 app = FastAPI()
 
-# --- HIGH STABILITY CORS (EXPLICIT FOR FIREBASE WEB) ---
+# --- HIGH STABILITY CORS (EXPLICIT FOR FIREBASE WEB & SECURE HANDSHAKE) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -200,6 +199,7 @@ async def websocket_endpoint(websocket: WebSocket, email: str):
     await manager.connect(email.lower().strip(), websocket)
     try:
         while True:
+            # Maintain active pulse
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.local_connections.pop(email.lower().strip(), None)
@@ -234,11 +234,13 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     if clean_me in ["ping", "warmup"]: return {"status": "ready"}
     me = db.query(User).filter(User.email == clean_me).first()
     if not me: raise HTTPException(status_code=404)
+    
     factor_labels = ["Health", "Power", "Creativity", "Social", "Emotional", "Mental", "Lifestyle", "Spiritual", "Sexual", "Family", "Economic", "Foundation"]
     results = []
     my_sign = get_sun_sign(me.birthday.day, me.birthday.month); my_path = get_life_path(str(me.birthday))
     random.seed(int(hashlib.md5((str(me.birthday) + (me.palm_signature or "S")).encode()).hexdigest(), 16))
     results.append({"name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path, "factors": {f: {"score": f"{random.randint(85,99)}%", "why": f"Your {f} is amplified."} for f in factor_labels}, "reading": f"Blueprint optimized for {my_sign} manifestation."})
+    
     others = db.query(User).filter(User.email != me.email).all()
     for o in others:
         pair_emails = sorted([me.email, o.email]); pair_palms = sorted([me.palm_signature or "P1", o.palm_signature or "P2"])
@@ -317,7 +319,7 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
     db.add(ChatMessage(sender=s, receiver=r, content=content))
     db.commit()
     
-    # Broadcast to Receiver Channel
+    # CRITICAL FIX: BROADCAST TO THE RECEIVER (r) CHANNEL FOR INSTANT UPDATE
     msg_payload = {"sender": s, "content": content, "is_read": False, "time": datetime.utcnow().isoformat()}
     await manager.publish_update(r, msg_payload)
     
