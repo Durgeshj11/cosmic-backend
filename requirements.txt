@@ -6,6 +6,23 @@ uvicorn==0.27.1
 # Required for handling multiple photo files and form data
 python-multipart==0.0.9
 pydantic==2.6.3
+# Required for WebSocket support in Starlette/FastAPI
+websockets==12.0
+
+# =====================================================
+# Real-Time & Scaling Engine (The "Glue")
+# Handles the Symmetric Pair-Unit Pub/Sub logic via Redis
+# =====================================================
+redis==5.0.3
+aioredis==2.0.1
+# High-speed parser for Redis data
+hiredis==2.3.2
+
+# =====================================================
+# Symmetric Notification Engine
+# NEW: Required for sending Firebase Push Notifications
+# =====================================================
+firebase-admin==6.5.0
 
 # =====================================================
 # AI & Image Processing (The "Voice" Layer)
