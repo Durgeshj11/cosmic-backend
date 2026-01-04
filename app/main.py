@@ -57,7 +57,7 @@ class Match(Base):
     user_a = Column(String, index=True) 
     user_b = Column(String, index=True) 
     is_mutual = Column(Boolean, default=False)
-    is_unlocked = Column(Boolean, default=False) # Bypasses AI Filter
+    is_unlocked = Column(Boolean, default=False) 
     user_a_accepted = Column(Boolean, default=False)
     user_b_accepted = Column(Boolean, default=False)
     request_initiated_by = Column(String) 
@@ -162,19 +162,47 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     others = db.query(User).filter(User.email != me.email).all()
     results = []
 
-    # THE 12 COSMIC POINTS
     factor_labels = [
         "Health", "Power", "Creativity", "Social", "Emotional", "Mental",
         "Lifestyle", "Spiritual", "Sexual", "Family", "Economic", "Foundation"
     ]
 
+    # --- 1. UPDATED SELF CARD (INDEX 0) WITH INSIGHTS ---
+    my_sign = get_sun_sign(me.birthday.day, me.birthday.month)
+    my_path = get_life_path(str(me.birthday))
+    random.seed(int(hashlib.md5((str(me.birthday) + (me.palm_signature or "SELF")).encode()).hexdigest(), 16))
+    
+    self_factors = {}
+    for f in factor_labels:
+        perc = random.randint(85, 99)
+        self_factors[f] = {
+            "score": f"{perc}%",
+            "why": f"Your {f} is amplified by your {my_sign} nature and Path {my_path} energy. You possess a naturally high vibration in this sector."
+        }
+
+    results.append({
+        "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email,
+        "photos": me.photos.split(",") if me.photos else [],
+        "sun_sign": my_sign, "life_path": my_path, "factors": self_factors,
+        "reading": f"As a {my_sign} with Life Path {my_path}, your soul is currently in a peak phase of manifestation."
+    })
+
+    # --- 2. MATCH FEED WITH SYNERGY INSIGHTS ---
     for o in others:
-        pair_dates = sorted([str(me.birthday), str(o.birthday)])
-        pair_sigs = sorted([me.palm_signature or "S1", o.palm_signature or "S2"])
-        seed_hash = hashlib.md5(("".join(pair_dates) + "".join(pair_sigs)).encode()).hexdigest()
+        o_sign = get_sun_sign(o.birthday.day, o.birthday.month)
+        o_path = get_life_path(str(o.birthday))
+        seed_hash = hashlib.md5((str(me.birthday) + str(o.birthday) + (me.palm_signature or "S1") + (o.palm_signature or "S2")).encode()).hexdigest()
         random.seed(int(seed_hash, 16))
-        tot = random.randint(65, 98)
         
+        match_factors = {}
+        for f in factor_labels:
+            perc = random.randint(60, 98)
+            match_factors[f] = {
+                "score": f"{perc}%",
+                "why": f"Together, your {f} synergy is {perc}%. Your {my_sign}-{o_sign} duality will transform your shared life through Path {o_path} lessons."
+            }
+
+        tot = random.randint(65, 98)
         match_record = db.query(Match).filter(
             ((Match.user_a == me.email) & (Match.user_b == o.email) & (Match.is_mutual == True)) |
             ((Match.user_b == me.email) & (Match.user_a == o.email) & (Match.is_mutual == True))
@@ -184,11 +212,8 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             "name": o.name, "email": o.email, "is_self": False, 
             "is_matched": match_record is not None, 
             "percentage": f"{tot}%", "photos": o.photos.split(",") if o.photos else [],
-            "sun_sign": get_sun_sign(o.birthday.day, o.birthday.month),
-            "life_path": get_life_path(str(o.birthday)),
-            "tier": "Marriage Material" if tot >= 90 else "Strong Match",
-            "factors": {k: f"{random.randint(60,98)}%" for k in factor_labels},
-            "reading": "Shared destiny updated based on real palm evolution."
+            "sun_sign": o_sign, "life_path": o_path, "factors": match_factors,
+            "reading": f"This {my_sign}-{o_sign} connection creates a powerful Path {my_path}+{o_path} synergy for long-term growth."
         })
     return results
 
@@ -210,40 +235,19 @@ async def like_profile(my_email: str = Form(...), target_email: str = Form(...),
 @app.get("/chat-status")
 async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
-    match = db.query(Match).filter(
-        ((Match.user_a == me) & (Match.user_b == them)) |
-        ((Match.user_b == me) & (Match.user_a == them))
-    ).first()
-
+    match = db.query(Match).filter(((Match.user_a == me) & (Match.user_b == them)) | ((Match.user_b == me) & (Match.user_a == them))).first()
     is_globally_accepted = match.user_a_accepted or match.user_b_accepted if match else False
-    engaged_count = db.query(Match).filter(
-        ((Match.user_a == me) & (Match.user_a_accepted == True)) |
-        ((Match.user_b == me) & (Match.user_b_accepted == True))
-    ).count()
-        
-    return {
-        "accepted": is_globally_accepted,
-        "engaged_count": engaged_count,
-        "is_paid": match.is_unlocked if match else False
-    }
+    engaged_count = db.query(Match).filter(((Match.user_a == me) & (Match.user_a_accepted == True)) | ((Match.user_b == me) & (Match.user_b_accepted == True))).count()
+    return {"accepted": is_globally_accepted, "engaged_count": engaged_count, "is_paid": match.is_unlocked if match else False}
 
 @app.post("/accept-chat")
 async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: bool = Form(False), db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
-    match = db.query(Match).filter(
-        ((Match.user_a == me) & (Match.user_b == them)) |
-        ((Match.user_b == me) & (Match.user_a == them))
-    ).first()
+    match = db.query(Match).filter(((Match.user_a == me) & (Match.user_b == them)) | ((Match.user_b == me) & (Match.user_a == them))).first()
     if not match: raise HTTPException(status_code=404)
-
-    engaged_count = db.query(Match).filter(
-        ((Match.user_a == me) & (Match.user_a_accepted == True)) |
-        ((Match.user_b == me) & (Match.user_b_accepted == True))
-    ).count()
-
+    engaged_count = db.query(Match).filter(((Match.user_a == me) & (Match.user_a_accepted == True)) | ((Match.user_b == me) & (Match.user_b_accepted == True))).count()
     if engaged_count >= 2 and not is_paid and not (match.user_a_accepted or match.user_b_accepted):
         return {"status": "payment_required", "engaged_count": engaged_count}
-
     if match.user_a == me: match.user_a_accepted = True
     else: match.user_b_accepted = True
     if is_paid: match.is_unlocked = True 
@@ -253,28 +257,20 @@ async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: bool 
 @app.get("/messages")
 async def get_messages(me: str, them: str, db: Session = Depends(get_db)):
     me, them = me.lower().strip(), them.lower().strip()
-    msgs = db.query(ChatMessage).filter(
-        ((ChatMessage.sender == me) & (ChatMessage.receiver == them)) |
-        ((ChatMessage.sender == them) & (ChatMessage.receiver == me))
-    ).order_by(ChatMessage.timestamp.asc()).all()
+    msgs = db.query(ChatMessage).filter(((ChatMessage.sender == me) & (ChatMessage.receiver == them)) | ((ChatMessage.sender == them) & (ChatMessage.receiver == me))).order_by(ChatMessage.timestamp.asc()).all()
     return [{"sender": m.sender, "content": m.content, "time": m.timestamp.isoformat()} for m in msgs]
 
 @app.post("/send-message")
 async def send_message(sender: str = Form(...), receiver: str = Form(...), content: str = Form(...), db: Session = Depends(get_db)):
     s_mail, r_mail = sender.lower().strip(), receiver.lower().strip()
-    match = db.query(Match).filter(
-        ((Match.user_a == s_mail) & (Match.user_b == r_mail) & (Match.is_mutual == True)) |
-        ((Match.user_b == s_mail) & (Match.user_a == r_mail) & (Match.is_mutual == True))
-    ).first()
+    match = db.query(Match).filter(((Match.user_a == s_mail) & (Match.user_b == r_mail) & (Match.is_mutual == True)) | ((Match.user_b == s_mail) & (Match.user_a == r_mail) & (Match.is_mutual == True))).first()
     if not match: raise HTTPException(status_code=403, detail="Mutual match required.")
-
     if not match.is_unlocked:
         prompt = f"Reply ONLY 'LEAK' or 'SAFE': {content}"
         ai_resp = ai_model.generate_content(prompt).text.strip().upper()
         if "LEAK" in ai_resp:
             db.delete(match); db.commit()
             raise HTTPException(status_code=403, detail="Privacy Violation.")
-
     db.add(ChatMessage(sender=s_mail, receiver=r_mail, content=content))
     db.commit()
     return {"status": "sent"}
