@@ -43,22 +43,26 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"Firebase Init Warning: {e}")
 
-# --- 🧠 SUPREME PRECISION TRUTH ENGINE LOADING (RENDER FIXED) ---
+# --- 🧠 SUPREME PRECISION TRUTH ENGINE LOADING (RENDER PATH DISCOVERY) ---
 TRUTH_DICTIONARY = {}
 file_name = 'sentient_3600_truths.json'
 
-def find_and_load_json():
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    # Priority search locations for robust cloud discovery
-    search_locations = [
-        os.path.join(base_dir, file_name),
-        os.path.join(base_dir, "app", file_name),
-        os.path.join(os.getcwd(), file_name),
-        os.path.join(os.getcwd(), "app", file_name),
-        f"/opt/render/project/src/app/{file_name}",
-        f"/opt/render/project/src/{file_name}"
+def supreme_load_json():
+    import os
+    # 1. Get the Absolute Path of the directory where main.py actually lives
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 2. Define every possible path Render or Local might use
+    possible_paths = [
+        os.path.join(script_dir, file_name),                    # Inside /app/
+        os.path.join(os.path.dirname(script_dir), file_name),   # One level up from /app/
+        os.path.join(os.getcwd(), file_name),                   # Current working directory
+        os.path.join(os.getcwd(), "app", file_name),            # Subfolder of CWD
+        f"/opt/render/project/src/app/{file_name}",             # Absolute Render path
+        f"/opt/render/project/src/{file_name}"                  # Root Render path
     ]
-    for path in search_locations:
+
+    for path in possible_paths:
         if os.path.exists(path):
             try:
                 with open(path, 'r', encoding='utf-8') as f:
@@ -66,10 +70,11 @@ def find_and_load_json():
                     print(f"✅ SUCCESS: Billionaire Brain Loaded from {path}")
                     return data
             except Exception as e:
-                print(f"Error reading {path}: {e}")
+                print(f"Error reading brain at {path}: {e}")
     return {}
 
-TRUTH_DICTIONARY = find_and_load_json()
+TRUTH_DICTIONARY = supreme_load_json()
+
 if not TRUTH_DICTIONARY:
     print("❌ CRITICAL: sentient_3600_truths.json NOT FOUND. Engine is blind.")
 
@@ -214,24 +219,26 @@ async def send_push_notification(token: str, title: str, body: str):
 # --- 🚀 ROBUST ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
 def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
     try:
-        # Normalize key mapping
+        # 1. Normalize mapping to match JSON keys exactly
         f_key = str(factor).strip().capitalize()
         factor_db = TRUTH_DICTIONARY.get(f_key, {})
         
-        # Precision Key Match (Round and convert to string)
-        score_key = str(int(score))
-        entry = factor_db.get(score_key)
+        # 2. Precision Score lookup (Convert integer math to string keys)
+        score_str = str(int(score))
+        entry = factor_db.get(score_str)
 
         if not entry:
-            # Fallback to closest numeric key to avoid placeholders
+            # Fallback logic to prevent "Core alignment" placeholders
             avail = sorted(factor_db.keys(), key=lambda x: abs(int(x) - int(score)))
             entry = factor_db.get(avail[0]) if avail else None
             
         if not entry:
             return f"Calculated via {factor} resonance."
 
+        # 3. Adaptive Content based on available user data
         active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
         lines = []
+        
         if active.get("Numerology") and user.name:
             lines.append(entry.get("Numerology", ""))
         if active.get("Astrology") and user.birth_time:
@@ -240,9 +247,9 @@ def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
             lines.append(entry.get("Palmistry", ""))
 
         final_text = "\n\n".join([l for l in lines if l])
-        return final_text if final_text else f"Computed via {factor} frequency."
+        return final_text if final_text else f"Calculated via {factor} frequency."
     except Exception as e:
-        print(f"Extraction Logic Error: {e}")
+        print(f"Billionaire Engine Logic Error: {e}")
         return f"Calculated via {factor} resonance."
 
 app = FastAPI()
