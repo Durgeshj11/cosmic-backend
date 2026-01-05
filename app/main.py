@@ -43,14 +43,24 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"Firebase Init Warning: {e}")
 
-# --- 🧠 TRIPLE-SCIENCE LAYMAN ENGINE LOADING ---
+# --- 🧠 ADAPTIVE TRIPLE-SCIENCE ENGINE PATH FIX ---
 TRUTH_DICTIONARY = {}
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Dynamic pathing for Render.com deployment
+file_path = os.path.join(current_dir, 'sentient_3600_truths.json')
+
 try:
-    with open('sentient_3600_truths.json', 'r') as f:
+    with open(file_path, 'r') as f:
         TRUTH_DICTIONARY = json.load(f)
-    print("Database Loaded: 3,600 Layman Truths ready for 12 cards.")
+    print("SUCCESS: 3,600 Layman Truths ready for 12 cards.")
 except Exception as e:
-    print(f"Billionaire Engine Error: Ensure sentient_3600_truths.json exists. {e}")
+    # Fallback to local root if pathing differs
+    try:
+        with open('sentient_3600_truths.json', 'r') as f:
+            TRUTH_DICTIONARY = json.load(f)
+        print("SUCCESS: Database Loaded from local root.")
+    except:
+        print(f"Billionaire Engine Error: Ensure sentient_3600_truths.json exists. {e}")
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -100,7 +110,7 @@ class ChatMessage(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- REDIS MANAGER ---
+# --- REDIS MANAGER (Billionaire Scale Protocol) ---
 class RedisConnectionManager:
     def __init__(self, redis_url: str):
         if not redis_url:
@@ -199,16 +209,13 @@ def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
         entry = factor_db.get(str(score), {})
         
         lines = []
-        
-        # 1. Numerology: Triggered if active and name present
+        # 1. Numerology (Name Dependent)
         if active.get("Numerology") and user.name:
             lines.append(entry.get("Numerology", "Numerology resonance active."))
-            
-        # 2. Astrology: ONLY if Birth Time and Location are present
+        # 2. Astrology (Birth Time/Location Dependent)
         if active.get("Astrology") and user.birth_time and user.birth_location:
             lines.append(entry.get("Astrology", "Cosmic alignment verified."))
-            
-        # 3. Palmistry: ONLY if Biometric Signature exists
+        # 3. Palmistry (Biometric Signature Dependent)
         if active.get("Palmistry") and user.palm_signature and user.palm_signature != "NONE":
             lines.append(entry.get("Palmistry", "Biometric signature confirmed."))
         
@@ -266,7 +273,6 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     my_sign = get_sun_sign(me.birthday.day, me.birthday.month)
     my_path = get_life_path(str(me.birthday))
     
-    # Self card
     results.append({
         "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, 
         "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path, 
@@ -291,13 +297,12 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             reading = ai_res.text.strip()
         except: pass
 
-        # 🟢 ADAPTIVE FACTOR PROPAGATION
         processed_factors = {}
         for f in factor_labels:
             f_score = min(99, max(1, match_score + random.randint(-10, 10))) 
             processed_factors[f] = {
                 "score": f"{f_score}%",
-                "why": fetch_adaptive_layman_truth(f, f_score, me) # Adaptive 1, 2, or 3 lines
+                "why": fetch_adaptive_layman_truth(f, f_score, me) # Dynamic Adaptation
             }
 
         results.append({
@@ -311,6 +316,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         })
     return results
 
+# --- PRESERVED ENDPOINTS (NO REMOVAL) ---
 @app.post("/like-profile")
 async def like_profile(my_email: str = Form(...), target_email: str = Form(...), db: Session = Depends(get_db)):
     my, target = my_email.lower().strip(), target_email.lower().strip()
