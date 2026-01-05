@@ -27,7 +27,6 @@ load_dotenv()
 
 # --- AI, Media & Notification Configuration ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# 🟢 CRITICAL: Stable model name to ensure 100% uptime
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 cloudinary.config(
@@ -43,6 +42,15 @@ if not firebase_admin._apps:
         firebase_admin.initialize_app(cred)
     except Exception as e:
         print(f"Firebase Init Warning: {e}")
+
+# --- 🧠 TRIPLE-SCIENCE LAYMAN ENGINE LOADING ---
+TRUTH_DICTIONARY = {}
+try:
+    with open('sentient_3600_truths.json', 'r') as f:
+        TRUTH_DICTIONARY = json.load(f)
+    print("Database Loaded: 3,600 Layman Truths ready for 12 cards.")
+except Exception as e:
+    print(f"Billionaire Engine Error: Ensure sentient_3600_truths.json exists. {e}")
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -92,20 +100,16 @@ class ChatMessage(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- ⚡ REDIS MANAGER (Billionaire Scale Protocol) ---
+# --- REDIS MANAGER ---
 class RedisConnectionManager:
     def __init__(self, redis_url: str):
         if not redis_url:
             self.redis = None
             self.local_connections = {}
             return
-        if not redis_url.startswith(("redis://", "rediss://", "unix://")):
-            redis_url = f"rediss://{redis_url}"
-        elif redis_url.startswith("redis://"):
-            redis_url = redis_url.replace("redis://", "rediss://", 1)
         try:
             self.redis = aioredis.from_url(redis_url, decode_responses=True)
-            self.local_connections: dict[str, WebSocket] = {}
+            self.local_connections = {}
         except Exception as e:
             print(f"Redis Setup Error: {e}")
             self.redis = None
@@ -136,26 +140,18 @@ class RedisConnectionManager:
 
 manager = RedisConnectionManager(os.getenv("UPSTASH_REDIS_URL"))
 
-# --- 🔬 THE SCIENTIFIC CALCULATION ENGINES (REAL MATH) ---
+# --- SCIENTIFIC CALCULATION ENGINES ---
 
 def get_astrology_score(sign_a: str, sign_b: str) -> int:
-    """Calculates compatibility based on elemental trines and squares."""
-    elements = {
-        "Fire": ["Aries", "Leo", "Sagittarius"],
-        "Earth": ["Taurus", "Virgo", "Capricorn"],
-        "Air": ["Gemini", "Libra", "Aquarius"],
-        "Water": ["Cancer", "Scorpio", "Pisces"]
-    }
+    elements = {"Fire": ["Aries", "Leo", "Sagittarius"], "Earth": ["Taurus", "Virgo", "Capricorn"], "Air": ["Gemini", "Libra", "Aquarius"], "Water": ["Cancer", "Scorpio", "Pisces"]}
     def find_el(s): return next(k for k, v in elements.items() if s in v)
     el_a, el_b = find_el(sign_a), find_el(sign_b)
-    
     if el_a == el_b: return 95 
     harmonies = [("Fire", "Air"), ("Earth", "Water")]
     if (el_a, el_b) in harmonies or (el_b, el_a) in harmonies: return 85
     return 45 
 
 def get_numerology_harmony(name_a: str, name_b: str) -> int:
-    """Pythagorean Destiny Match: Calculates resonance from full legal names."""
     def calc_destiny(name):
         val_map = {c: (i % 9) + 1 for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")}
         total = sum(val_map.get(char.lower(), 0) for char in name if char.isalpha())
@@ -166,7 +162,6 @@ def get_numerology_harmony(name_a: str, name_b: str) -> int:
     return 98 if diff == 0 else 80 if diff in [2, 4, 6] else 40
 
 def get_palm_variance(sig_a: str, sig_b: str) -> int:
-    """Biometric Resonance: Compares Edge Density variance."""
     val_a = int(sig_a[:4], 16) if sig_a and sig_a != "NONE" else 0
     val_b = int(sig_b[:4], 16) if sig_b and sig_b != "NONE" else 0
     diff = abs(val_a - val_b) % 100
@@ -192,12 +187,34 @@ def get_life_path(dob_str):
 async def send_push_notification(token: str, title: str, body: str):
     if not token or token == "NONE": return
     try:
-        message = messaging.Message(
-            notification=messaging.Notification(title=title, body=body),
-            token=token,
-        )
+        message = messaging.Message(notification=messaging.Notification(title=title, body=body), token=token)
         messaging.send(message)
     except Exception as e: print(f"Push Error: {e}")
+
+# --- 🚀 ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
+def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
+    try:
+        active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
+        factor_db = TRUTH_DICTIONARY.get(factor, {})
+        entry = factor_db.get(str(score), {})
+        
+        lines = []
+        
+        # 1. Numerology: Triggered if active and name present
+        if active.get("Numerology") and user.name:
+            lines.append(entry.get("Numerology", "Numerology resonance active."))
+            
+        # 2. Astrology: ONLY if Birth Time and Location are present
+        if active.get("Astrology") and user.birth_time and user.birth_location:
+            lines.append(entry.get("Astrology", "Cosmic alignment verified."))
+            
+        # 3. Palmistry: ONLY if Biometric Signature exists
+        if active.get("Palmistry") and user.palm_signature and user.palm_signature != "NONE":
+            lines.append(entry.get("Palmistry", "Biometric signature confirmed."))
+        
+        return "\n\n".join(lines) if lines else f"Calculated via {factor} frequency."
+    except:
+        return f"Calculated via {factor} frequency."
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -249,7 +266,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     my_sign = get_sun_sign(me.birthday.day, me.birthday.month)
     my_path = get_life_path(str(me.birthday))
     
-    # User's own card (Simulation of Self-Resonance)
+    # Self card
     results.append({
         "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, 
         "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path, 
@@ -259,24 +276,29 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     
     others = db.query(User).filter(User.email != me.email).all()
     for o in others:
-        # 🟢 REAL MATHEMATICAL CALCULATION
         o_sign = get_sun_sign(o.birthday.day, o.birthday.month)
         astro = get_astrology_score(my_sign, o_sign)
         num = get_numerology_harmony(me.full_legal_name or me.name, o.full_legal_name or o.name)
         palm = get_palm_variance(me.palm_signature, o.palm_signature)
         
-        # Weighted Final Score: 40% Astro, 30% Num, 30% Palm
         match_score = int((astro * 0.4) + (num * 0.3) + (palm * 0.3))
-        
         tier = "MARRIAGE MATERIAL" if match_score >= 85 else "INTENSE FLING" if match_score >= 65 else "KARMIC LESSON"
         match_rec = db.query(Match).filter(((Match.user_a == me.email) & (Match.user_b == o.email)) | ((Match.user_b == me.email) & (Match.user_a == o.email))).first()
         
-        # AI-driven Dynamic Reading based on REAL scores
         reading = f"Destiny Tier: {tier}. Resonance: {match_score}%."
         try:
             ai_res = ai_model.generate_content(f"Explain why a {my_sign} and {o_sign} have {match_score}% compatibility in one short sentence.")
             reading = ai_res.text.strip()
         except: pass
+
+        # 🟢 ADAPTIVE FACTOR PROPAGATION
+        processed_factors = {}
+        for f in factor_labels:
+            f_score = min(99, max(1, match_score + random.randint(-10, 10))) 
+            processed_factors[f] = {
+                "score": f"{f_score}%",
+                "why": fetch_adaptive_layman_truth(f, f_score, me) # Adaptive 1, 2, or 3 lines
+            }
 
         results.append({
             "name": o.name, "email": o.email, "is_self": False, 
@@ -284,7 +306,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             "has_liked": db.query(Match).filter(Match.user_a == me.email, Match.user_b == o.email).first() is not None, 
             "percentage": f"{match_score}%", "tier": tier, "photos": o.photos.split(",") if o.photos else [], 
             "sun_sign": o_sign, "life_path": get_life_path(str(o.birthday)), 
-            "factors": {f: {"score": f"{min(98, max(30, match_score + random.randint(-10, 10)))}%", "why": f"Computed via {f} resonance."} for f in factor_labels}, 
+            "factors": processed_factors, 
             "reading": reading
         })
     return results
