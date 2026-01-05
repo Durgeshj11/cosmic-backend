@@ -69,15 +69,13 @@ def find_and_load_json():
     return {}
 
 TRUTH_DICTIONARY = find_and_load_json()
-if not TRUTH_DICTIONARY:
-    print("❌ CRITICAL: sentient_3600_truths.json NOT FOUND. Engine is blind.")
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -210,7 +208,7 @@ async def send_push_notification(token: str, title: str, body: str):
         messaging.send(message)
     except Exception as e: print(f"Push Error: {e}")
 
-# --- 🚀 ROBUST ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
+# --- 🚀 ADAPTIVE LAYMAN ENGINE (SYNCHRONIZED) ---
 def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
     try:
         f_key = str(factor).strip().capitalize()
@@ -221,7 +219,6 @@ def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
         if not entry:
             avail = sorted(factor_db.keys(), key=lambda x: abs(int(x) - int(score)))
             entry = factor_db.get(avail[0]) if avail else None
-            
         if not entry:
             return f"Calculated via {factor} resonance."
 
@@ -241,7 +238,16 @@ def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
         return f"Calculated via {factor} resonance."
 
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+# 🎯 RESTORE: Session Persistence & Structural Slider Fix
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"]
+)
 
 # --- ENDPOINTS ---
 @app.websocket("/ws/{email}")
@@ -289,27 +295,13 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     my_sign = get_sun_sign(me.birthday.day, me.birthday.month)
     my_path = get_life_path(str(me.birthday))
     
-    # 🎯 FIX: Logged-in User Card now pulls full truths and matches slider structure
-    self_factors = {}
-    for f in factor_labels:
-        self_factors[f] = {
-            "score": "100%",
-            "why": fetch_adaptive_layman_truth(f, 100, me) 
-        }
-
+    # 🎯 SELF CARD: Pull Unique 100% Truths and Structural Alignment for Slider
+    self_factors = {f: {"score": "100%", "why": fetch_adaptive_layman_truth(f, 100, me)} for f in factor_labels}
     results.append({
-        "name": "YOUR DESTINY", 
-        "percentage": "100%", 
-        "is_self": True, 
-        "is_matched": True, # Ensure sliding works by providing all keys
-        "has_liked": True, 
-        "email": me.email, 
-        "photos": me.photos.split(",") if me.photos else [], 
-        "sun_sign": my_sign, 
-        "life_path": my_path, 
-        "tier": "GOD TIER",
-        "factors": self_factors, 
-        "reading": f"Optimized {my_sign} blueprint."
+        "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "is_matched": True, 
+        "has_liked": True, "tier": "GOD TIER", "email": me.email, 
+        "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path, 
+        "factors": self_factors, "reading": f"Optimized {my_sign} blueprint."
     })
     
     others = db.query(User).filter(User.email != me.email).all()
@@ -334,7 +326,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             f_score = min(100, max(1, match_score + random.randint(-10, 10))) 
             processed_factors[f] = {
                 "score": f"{f_score}%",
-                "why": fetch_adaptive_layman_truth(f, f_score, me) # Logic synced for matches too
+                "why": fetch_adaptive_layman_truth(f, f_score, me)
             }
 
         results.append({
@@ -343,8 +335,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             "has_liked": db.query(Match).filter(Match.user_a == me.email, Match.user_b == o.email).first() is not None, 
             "percentage": f"{match_score}%", "tier": tier, "photos": o.photos.split(",") if o.photos else [], 
             "sun_sign": o_sign, "life_path": get_life_path(str(o.birthday)), 
-            "factors": processed_factors, 
-            "reading": reading
+            "factors": processed_factors, "reading": reading
         })
     return results
 
