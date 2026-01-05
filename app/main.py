@@ -43,10 +43,9 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"Firebase Init Warning: {e}")
 
-# --- 🧠 FINAL PRECISION TRUTH ENGINE LOADING ---
+# --- 🧠 FINAL PRECISION TRUTH ENGINE LOADING (RENDER FIXED) ---
 TRUTH_DICTIONARY = {}
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# Check root and app subdirectory for Render compatibility
 possible_paths = [
     os.path.join(current_dir, 'sentient_3600_truths.json'),
     os.path.join(current_dir, 'app', 'sentient_3600_truths.json'),
@@ -63,7 +62,7 @@ for path in possible_paths:
         continue
 
 if not TRUTH_DICTIONARY:
-    print("Billionaire Engine Error: sentient_3600_truths.json NOT FOUND in any path.")
+    print("Billionaire Engine Error: sentient_3600_truths.json NOT FOUND.")
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -204,37 +203,40 @@ async def send_push_notification(token: str, title: str, body: str):
         messaging.send(message)
     except Exception as e: print(f"Push Error: {e}")
 
-# --- 🚀 ROBUST ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
+# --- 🚀 FINAL ROBUST ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
 def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
     try:
         active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
         
-        # Ensure Factor key matches JSON exactly (Capitalized)
+        # 1. PRECISION KEY MAPPING: Force Factor to match JSON keys (e.g., "Social")
         factor_key = factor.strip().capitalize()
         factor_db = TRUTH_DICTIONARY.get(factor_key, {})
         
-        # Handle JSON key type variance (string "92" vs integer 92)
-        entry = factor_db.get(str(score)) or factor_db.get(score)
+        # 2. PRECISION SCORE LOOKUP: JSON keys are Strings ("95")
+        score_key = str(score)
+        entry = factor_db.get(score_key)
         
+        # Fallback if specific score isn't found
         if not entry:
             return f"Calculated via {factor} resonance."
 
         lines = []
-        # 1. Numerology (Name Dependent)
+        # 3. ADAPTIVE LOGIC: Check data depth
         if active.get("Numerology") and user.name:
-            lines.append(entry.get("Numerology", "Numerology resonance active."))
+            lines.append(entry.get("Numerology", ""))
             
-        # 2. Astrology (Birth Details Dependent)
-        if active.get("Astrology") and user.birth_time and user.birth_location:
-            lines.append(entry.get("Astrology", "Cosmic alignment verified."))
+        if active.get("Astrology") and user.birth_time:
+            lines.append(entry.get("Astrology", ""))
             
-        # 3. Palmistry (Biometric Dependent)
         if active.get("Palmistry") and user.palm_signature and user.palm_signature != "NONE":
-            lines.append(entry.get("Palmistry", "Biometric signature confirmed."))
+            lines.append(entry.get("Palmistry", ""))
         
-        return "\n\n".join(lines) if lines else f"Calculated via {factor} frequency."
+        # Filter empty strings and join for the popup
+        final_output = "\n\n".join([l for l in lines if l])
+        return final_output if final_output else f"Computed via {factor} frequency."
+        
     except Exception as e:
-        print(f"Billionaire Engine Logic Error: {e}")
+        print(f"Billionaire Engine Error for {factor}: {e}")
         return f"Calculated via {factor} resonance."
 
 app = FastAPI()
@@ -313,10 +315,10 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
 
         processed_factors = {}
         for f in factor_labels:
-            f_score = min(99, max(1, match_score + random.randint(-10, 10))) 
+            f_score = min(100, max(1, match_score + random.randint(-10, 10))) 
             processed_factors[f] = {
                 "score": f"{f_score}%",
-                "why": fetch_adaptive_layman_truth(f, f_score, me) # Robust Extraction
+                "why": fetch_adaptive_layman_truth(f, f_score, me) # Robust Extraction Logic
             }
 
         results.append({
