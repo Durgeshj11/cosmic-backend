@@ -43,11 +43,11 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"Firebase Init Warning: {e}")
 
-# --- 🧠 SUPREME PRECISION TRUTH ENGINE LOADING (RENDER FIXED) ---
+# --- 🧠 SUPREME PRECISION TRUTH ENGINE (RENDER-AWARE ABSOLUTE PATH) ---
 TRUTH_DICTIONARY = {}
 file_name = 'sentient_3600_truths.json'
 
-def find_and_load_json():
+def supreme_find_and_load_json():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     search_locations = [
         os.path.join(base_dir, file_name),
@@ -68,7 +68,7 @@ def find_and_load_json():
                 print(f"Error reading {path}: {e}")
     return {}
 
-TRUTH_DICTIONARY = find_and_load_json()
+TRUTH_DICTIONARY = supreme_find_and_load_json()
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -158,6 +158,19 @@ class RedisConnectionManager:
 
 manager = RedisConnectionManager(os.getenv("UPSTASH_REDIS_URL"))
 
+# --- ⚖️ SYMMETRIC PAIR-UNIT ENGINE ---
+def get_pair_unit_score(user_a_email, user_b_email, palm_a, palm_b):
+    # Ensures Rakhi and Mano always see the exact same percentage
+    combined_id = "".join(sorted([user_a_email.strip().lower(), user_b_email.strip().lower()]))
+    combined_palm = "".join(sorted([palm_a or "NONE", palm_b or "NONE"]))
+    seed_string = f"{combined_id}-{combined_palm}"
+    seed = int(hashlib.sha256(seed_string.encode()).hexdigest(), 16)
+    state = random.getstate() # Preserve global random state
+    random.seed(seed)
+    score = random.randint(1, 100)
+    random.setstate(state) # Restore global random state
+    return score
+
 # --- SCIENTIFIC CALCULATION ENGINES ---
 def get_astrology_score(sign_a: str, sign_b: str) -> int:
     elements = {"Fire": ["Aries", "Leo", "Sagittarius"], "Earth": ["Taurus", "Virgo", "Capricorn"], "Air": ["Gemini", "Libra", "Aquarius"], "Water": ["Cancer", "Scorpio", "Pisces"]}
@@ -218,24 +231,26 @@ def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
 
         if not entry:
             avail = sorted(factor_db.keys(), key=lambda x: abs(int(x) - int(score)))
-            entry = factor_db.get(avail[0]) if avail else None
-        if not entry:
-            return f"Calculated via {factor} resonance."
-
+            entry = factor_db.get(avail[0]) if avail else {}
+        
+        # Methodology gating: Only show lines for active methods
         active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
-        lines = []
-        if active.get("Numerology") and user.name:
-            lines.append(entry.get("Numerology", ""))
-        if active.get("Astrology") and user.birth_time:
-            lines.append(entry.get("Astrology", ""))
-        if active.get("Palmistry") and user.palm_signature != "NONE":
-            lines.append(entry.get("Palmistry", ""))
-
-        final_text = "\n\n".join([l for l in lines if l])
-        return final_text if final_text else f"Calculated via {factor} frequency."
+        
+        # If user.methods used the "astro/num/palm" keys from old frontend, handle them
+        legacy_map = {"Numerology": "num", "Astrology": "astro", "Palmistry": "palm"}
+        
+        results = {}
+        if active.get("Numerology") or active.get(legacy_map["Numerology"]): 
+            results["Numerology"] = entry.get("Numerology", "Name vibrations aligning.")
+        if active.get("Astrology") or active.get(legacy_map["Astrology"]): 
+            results["Astrology"] = entry.get("Astrology", "Planetary positions syncing.")
+        if active.get("Palmistry") or active.get(legacy_map["Palmistry"]): 
+            results["Palmistry"] = entry.get("Palmistry", "Physical signatures matching.")
+            
+        return results if results else {"Insight": f"Calculated via {factor} resonance."}
     except Exception as e:
         print(f"Extraction Logic Error: {e}")
-        return f"Calculated via {factor} resonance."
+        return {"Insight": f"Calculated via {factor} resonance."}
 
 app = FastAPI()
 
@@ -301,17 +316,15 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "is_matched": True, 
         "has_liked": True, "tier": "GOD TIER", "email": me.email, 
         "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path, 
-        "factors": self_factors, "reading": f"Optimized {my_sign} blueprint."
+        "factors": self_factors, "reading": f"Optimized {my_sign} soul blueprint."
     })
     
     others = db.query(User).filter(User.email != me.email).all()
     for o in others:
         o_sign = get_sun_sign(o.birthday.day, o.birthday.month)
-        astro = get_astrology_score(my_sign, o_sign)
-        num = get_numerology_harmony(me.full_legal_name or me.name, o.full_legal_name or o.name)
-        palm = get_palm_variance(me.palm_signature, o.palm_signature)
+        # 🎯 DETERMINISTIC SYMMETRIC SEEDING
+        match_score = get_pair_unit_score(me.email, o.email, me.palm_signature, o.palm_signature)
         
-        match_score = int((astro * 0.4) + (num * 0.3) + (palm * 0.3))
         tier = "MARRIAGE MATERIAL" if match_score >= 85 else "INTENSE FLING" if match_score >= 65 else "KARMIC LESSON"
         match_rec = db.query(Match).filter(((Match.user_a == me.email) & (Match.user_b == o.email)) | ((Match.user_b == me.email) & (Match.user_a == o.email))).first()
         
@@ -323,7 +336,8 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
 
         processed_factors = {}
         for f in factor_labels:
-            f_score = min(100, max(1, match_score + random.randint(-10, 10))) 
+            # Deterministic variation for 12 factors
+            f_score = min(100, max(1, match_score + (len(f) % 7) - 3)) 
             processed_factors[f] = {
                 "score": f"{f_score}%",
                 "why": fetch_adaptive_layman_truth(f, f_score, me)
@@ -401,6 +415,7 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
     if not match: raise HTTPException(status_code=403)
     if not match.is_unlocked:
         try:
+            # 🎯 AI MODERATION: Auto-Unmatch on Contact Leak
             ai_check = ai_model.generate_content(f"Reply ONLY 'LEAK' or 'SAFE': {content}")
             if "LEAK" in ai_check.text.strip().upper():
                 db.delete(match); db.commit(); raise HTTPException(status_code=403)
@@ -416,5 +431,7 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
 @app.delete("/delete-profile")
 def delete_profile(email: str, db: Session = Depends(get_db)):
     e = email.strip().lower()
-    db.query(User).filter(User.email == e).delete(); db.query(Match).filter((Match.user_a == e) | (Match.user_b == e)).delete(); db.commit()
+    db.query(User).filter(User.email == e).delete()
+    db.query(Match).filter((Match.user_a == e) | (Match.user_b == e)).delete()
+    db.commit()
     return {"message": "Deleted"}
