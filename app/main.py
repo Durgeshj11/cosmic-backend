@@ -43,24 +43,27 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"Firebase Init Warning: {e}")
 
-# --- 🧠 ADAPTIVE TRIPLE-SCIENCE ENGINE PATH FIX ---
+# --- 🧠 FINAL PRECISION TRUTH ENGINE LOADING ---
 TRUTH_DICTIONARY = {}
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# Dynamic pathing for Render.com deployment
-file_path = os.path.join(current_dir, 'sentient_3600_truths.json')
+# Check root and app subdirectory for Render compatibility
+possible_paths = [
+    os.path.join(current_dir, 'sentient_3600_truths.json'),
+    os.path.join(current_dir, 'app', 'sentient_3600_truths.json'),
+    'sentient_3600_truths.json'
+]
 
-try:
-    with open(file_path, 'r') as f:
-        TRUTH_DICTIONARY = json.load(f)
-    print("SUCCESS: 3,600 Layman Truths ready for 12 cards.")
-except Exception as e:
-    # Fallback to local root if pathing differs
+for path in possible_paths:
     try:
-        with open('sentient_3600_truths.json', 'r') as f:
+        with open(path, 'r') as f:
             TRUTH_DICTIONARY = json.load(f)
-        print("SUCCESS: Database Loaded from local root.")
+            print(f"SUCCESS: Loaded 3,600 Truths from {path}")
+            break
     except:
-        print(f"Billionaire Engine Error: Ensure sentient_3600_truths.json exists. {e}")
+        continue
+
+if not TRUTH_DICTIONARY:
+    print("Billionaire Engine Error: sentient_3600_truths.json NOT FOUND in any path.")
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -110,7 +113,7 @@ class ChatMessage(Base):
 
 Base.metadata.create_all(bind=engine)
 
-# --- REDIS MANAGER (Billionaire Scale Protocol) ---
+# --- REDIS MANAGER ---
 class RedisConnectionManager:
     def __init__(self, redis_url: str):
         if not redis_url:
@@ -201,27 +204,38 @@ async def send_push_notification(token: str, title: str, body: str):
         messaging.send(message)
     except Exception as e: print(f"Push Error: {e}")
 
-# --- 🚀 ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
+# --- 🚀 ROBUST ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
 def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
     try:
         active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
-        factor_db = TRUTH_DICTIONARY.get(factor, {})
-        entry = factor_db.get(str(score), {})
         
+        # Ensure Factor key matches JSON exactly (Capitalized)
+        factor_key = factor.strip().capitalize()
+        factor_db = TRUTH_DICTIONARY.get(factor_key, {})
+        
+        # Handle JSON key type variance (string "92" vs integer 92)
+        entry = factor_db.get(str(score)) or factor_db.get(score)
+        
+        if not entry:
+            return f"Calculated via {factor} resonance."
+
         lines = []
         # 1. Numerology (Name Dependent)
         if active.get("Numerology") and user.name:
             lines.append(entry.get("Numerology", "Numerology resonance active."))
-        # 2. Astrology (Birth Time/Location Dependent)
+            
+        # 2. Astrology (Birth Details Dependent)
         if active.get("Astrology") and user.birth_time and user.birth_location:
             lines.append(entry.get("Astrology", "Cosmic alignment verified."))
-        # 3. Palmistry (Biometric Signature Dependent)
+            
+        # 3. Palmistry (Biometric Dependent)
         if active.get("Palmistry") and user.palm_signature and user.palm_signature != "NONE":
             lines.append(entry.get("Palmistry", "Biometric signature confirmed."))
         
         return "\n\n".join(lines) if lines else f"Calculated via {factor} frequency."
-    except:
-        return f"Calculated via {factor} frequency."
+    except Exception as e:
+        print(f"Billionaire Engine Logic Error: {e}")
+        return f"Calculated via {factor} resonance."
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -302,7 +316,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             f_score = min(99, max(1, match_score + random.randint(-10, 10))) 
             processed_factors[f] = {
                 "score": f"{f_score}%",
-                "why": fetch_adaptive_layman_truth(f, f_score, me) # Dynamic Adaptation
+                "why": fetch_adaptive_layman_truth(f, f_score, me) # Robust Extraction
             }
 
         results.append({
@@ -316,7 +330,6 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
         })
     return results
 
-# --- PRESERVED ENDPOINTS (NO REMOVAL) ---
 @app.post("/like-profile")
 async def like_profile(my_email: str = Form(...), target_email: str = Form(...), db: Session = Depends(get_db)):
     my, target = my_email.lower().strip(), target_email.lower().strip()
