@@ -43,26 +43,35 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"Firebase Init Warning: {e}")
 
-# --- 🧠 FINAL PRECISION TRUTH ENGINE LOADING (RENDER FIXED) ---
+# --- 🧠 SUPREME PRECISION TRUTH ENGINE LOADING (RENDER FIXED) ---
 TRUTH_DICTIONARY = {}
-current_dir = os.path.dirname(os.path.abspath(__file__))
-possible_paths = [
-    os.path.join(current_dir, 'sentient_3600_truths.json'),
-    os.path.join(current_dir, 'app', 'sentient_3600_truths.json'),
-    'sentient_3600_truths.json'
-]
+file_name = 'sentient_3600_truths.json'
 
-for path in possible_paths:
-    try:
-        with open(path, 'r') as f:
-            TRUTH_DICTIONARY = json.load(f)
-            print(f"SUCCESS: Loaded 3,600 Truths from {path}")
-            break
-    except:
-        continue
+def find_and_load_json():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    # Priority search locations for robust cloud discovery
+    search_locations = [
+        os.path.join(base_dir, file_name),
+        os.path.join(base_dir, "app", file_name),
+        os.path.join(os.getcwd(), file_name),
+        os.path.join(os.getcwd(), "app", file_name),
+        f"/opt/render/project/src/app/{file_name}",
+        f"/opt/render/project/src/{file_name}"
+    ]
+    for path in search_locations:
+        if os.path.exists(path):
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    print(f"✅ SUCCESS: Billionaire Brain Loaded from {path}")
+                    return data
+            except Exception as e:
+                print(f"Error reading {path}: {e}")
+    return {}
 
+TRUTH_DICTIONARY = find_and_load_json()
 if not TRUTH_DICTIONARY:
-    print("Billionaire Engine Error: sentient_3600_truths.json NOT FOUND.")
+    print("❌ CRITICAL: sentient_3600_truths.json NOT FOUND. Engine is blind.")
 
 # --- Database Setup ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -153,7 +162,6 @@ class RedisConnectionManager:
 manager = RedisConnectionManager(os.getenv("UPSTASH_REDIS_URL"))
 
 # --- SCIENTIFIC CALCULATION ENGINES ---
-
 def get_astrology_score(sign_a: str, sign_b: str) -> int:
     elements = {"Fire": ["Aries", "Leo", "Sagittarius"], "Earth": ["Taurus", "Virgo", "Capricorn"], "Air": ["Gemini", "Libra", "Aquarius"], "Water": ["Cancer", "Scorpio", "Pisces"]}
     def find_el(s): return next(k for k, v in elements.items() if s in v)
@@ -203,47 +211,44 @@ async def send_push_notification(token: str, title: str, body: str):
         messaging.send(message)
     except Exception as e: print(f"Push Error: {e}")
 
-# --- 🚀 FINAL ROBUST ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
+# --- 🚀 ROBUST ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
 def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
     try:
-        active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
+        # Normalize key mapping
+        f_key = str(factor).strip().capitalize()
+        factor_db = TRUTH_DICTIONARY.get(f_key, {})
         
-        # 1. PRECISION KEY MAPPING: Force Factor to match JSON keys (e.g., "Social")
-        factor_key = factor.strip().capitalize()
-        factor_db = TRUTH_DICTIONARY.get(factor_key, {})
-        
-        # 2. PRECISION SCORE LOOKUP: JSON keys are Strings ("95")
-        score_key = str(score)
+        # Precision Key Match (Round and convert to string)
+        score_key = str(int(score))
         entry = factor_db.get(score_key)
-        
-        # Fallback if specific score isn't found
+
+        if not entry:
+            # Fallback to closest numeric key to avoid placeholders
+            avail = sorted(factor_db.keys(), key=lambda x: abs(int(x) - int(score)))
+            entry = factor_db.get(avail[0]) if avail else None
+            
         if not entry:
             return f"Calculated via {factor} resonance."
 
+        active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
         lines = []
-        # 3. ADAPTIVE LOGIC: Check data depth
         if active.get("Numerology") and user.name:
             lines.append(entry.get("Numerology", ""))
-            
         if active.get("Astrology") and user.birth_time:
             lines.append(entry.get("Astrology", ""))
-            
-        if active.get("Palmistry") and user.palm_signature and user.palm_signature != "NONE":
+        if active.get("Palmistry") and user.palm_signature != "NONE":
             lines.append(entry.get("Palmistry", ""))
-        
-        # Filter empty strings and join for the popup
-        final_output = "\n\n".join([l for l in lines if l])
-        return final_output if final_output else f"Computed via {factor} frequency."
-        
+
+        final_text = "\n\n".join([l for l in lines if l])
+        return final_text if final_text else f"Computed via {factor} frequency."
     except Exception as e:
-        print(f"Billionaire Engine Error for {factor}: {e}")
+        print(f"Extraction Logic Error: {e}")
         return f"Calculated via {factor} resonance."
 
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # --- ENDPOINTS ---
-
 @app.websocket("/ws/{email}")
 async def websocket_endpoint(websocket: WebSocket, email: str):
     await manager.connect(email.lower().strip(), websocket)
@@ -318,7 +323,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             f_score = min(100, max(1, match_score + random.randint(-10, 10))) 
             processed_factors[f] = {
                 "score": f"{f_score}%",
-                "why": fetch_adaptive_layman_truth(f, f_score, me) # Robust Extraction Logic
+                "why": fetch_adaptive_layman_truth(f, f_score, me) # Robust Extraction
             }
 
         results.append({
