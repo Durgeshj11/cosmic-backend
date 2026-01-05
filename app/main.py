@@ -43,26 +43,21 @@ if not firebase_admin._apps:
     except Exception as e:
         print(f"Firebase Init Warning: {e}")
 
-# --- 🧠 SUPREME PRECISION TRUTH ENGINE LOADING (RENDER PATH DISCOVERY) ---
+# --- 🧠 SUPREME PRECISION TRUTH ENGINE LOADING (RENDER FIXED) ---
 TRUTH_DICTIONARY = {}
 file_name = 'sentient_3600_truths.json'
 
-def supreme_load_json():
-    import os
-    # 1. Get the Absolute Path of the directory where main.py actually lives
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    
-    # 2. Define every possible path Render or Local might use
-    possible_paths = [
-        os.path.join(script_dir, file_name),                    # Inside /app/
-        os.path.join(os.path.dirname(script_dir), file_name),   # One level up from /app/
-        os.path.join(os.getcwd(), file_name),                   # Current working directory
-        os.path.join(os.getcwd(), "app", file_name),            # Subfolder of CWD
-        f"/opt/render/project/src/app/{file_name}",             # Absolute Render path
-        f"/opt/render/project/src/{file_name}"                  # Root Render path
+def find_and_load_json():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    search_locations = [
+        os.path.join(base_dir, file_name),
+        os.path.join(base_dir, "app", file_name),
+        os.path.join(os.getcwd(), file_name),
+        os.path.join(os.getcwd(), "app", file_name),
+        f"/opt/render/project/src/app/{file_name}",
+        f"/opt/render/project/src/{file_name}"
     ]
-
-    for path in possible_paths:
+    for path in search_locations:
         if os.path.exists(path):
             try:
                 with open(path, 'r', encoding='utf-8') as f:
@@ -70,11 +65,10 @@ def supreme_load_json():
                     print(f"✅ SUCCESS: Billionaire Brain Loaded from {path}")
                     return data
             except Exception as e:
-                print(f"Error reading brain at {path}: {e}")
+                print(f"Error reading {path}: {e}")
     return {}
 
-TRUTH_DICTIONARY = supreme_load_json()
-
+TRUTH_DICTIONARY = find_and_load_json()
 if not TRUTH_DICTIONARY:
     print("❌ CRITICAL: sentient_3600_truths.json NOT FOUND. Engine is blind.")
 
@@ -219,26 +213,20 @@ async def send_push_notification(token: str, title: str, body: str):
 # --- 🚀 ROBUST ADAPTIVE TRIPLE-SCIENCE LAYMAN ENGINE ---
 def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
     try:
-        # 1. Normalize mapping to match JSON keys exactly
         f_key = str(factor).strip().capitalize()
         factor_db = TRUTH_DICTIONARY.get(f_key, {})
-        
-        # 2. Precision Score lookup (Convert integer math to string keys)
         score_str = str(int(score))
         entry = factor_db.get(score_str)
 
         if not entry:
-            # Fallback logic to prevent "Core alignment" placeholders
             avail = sorted(factor_db.keys(), key=lambda x: abs(int(x) - int(score)))
             entry = factor_db.get(avail[0]) if avail else None
             
         if not entry:
             return f"Calculated via {factor} resonance."
 
-        # 3. Adaptive Content based on available user data
         active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
         lines = []
-        
         if active.get("Numerology") and user.name:
             lines.append(entry.get("Numerology", ""))
         if active.get("Astrology") and user.birth_time:
@@ -249,7 +237,7 @@ def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
         final_text = "\n\n".join([l for l in lines if l])
         return final_text if final_text else f"Calculated via {factor} frequency."
     except Exception as e:
-        print(f"Billionaire Engine Logic Error: {e}")
+        print(f"Extraction Logic Error: {e}")
         return f"Calculated via {factor} resonance."
 
 app = FastAPI()
@@ -301,10 +289,26 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
     my_sign = get_sun_sign(me.birthday.day, me.birthday.month)
     my_path = get_life_path(str(me.birthday))
     
+    # 🎯 FIX: Logged-in User Card now pulls full truths and matches slider structure
+    self_factors = {}
+    for f in factor_labels:
+        self_factors[f] = {
+            "score": "100%",
+            "why": fetch_adaptive_layman_truth(f, 100, me) 
+        }
+
     results.append({
-        "name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, 
-        "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path, 
-        "factors": {f: {"score": f"{random.randint(90,99)}%", "why": f"Core {f} alignment."} for f in factor_labels}, 
+        "name": "YOUR DESTINY", 
+        "percentage": "100%", 
+        "is_self": True, 
+        "is_matched": True, # Ensure sliding works by providing all keys
+        "has_liked": True, 
+        "email": me.email, 
+        "photos": me.photos.split(",") if me.photos else [], 
+        "sun_sign": my_sign, 
+        "life_path": my_path, 
+        "tier": "GOD TIER",
+        "factors": self_factors, 
         "reading": f"Optimized {my_sign} blueprint."
     })
     
@@ -330,7 +334,7 @@ async def get_feed(current_email: str, db: Session = Depends(get_db)):
             f_score = min(100, max(1, match_score + random.randint(-10, 10))) 
             processed_factors[f] = {
                 "score": f"{f_score}%",
-                "why": fetch_adaptive_layman_truth(f, f_score, me) # Robust Extraction
+                "why": fetch_adaptive_layman_truth(f, f_score, me) # Logic synced for matches too
             }
 
         results.append({
