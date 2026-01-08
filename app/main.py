@@ -18,7 +18,8 @@ from sqlalchemy import create_engine, Column, Integer, String, Date, Boolean, Da
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import google.generativeai as genai
-from faster_whisper import WhisperModel  # --- NEW: FREE LOCAL ALTERNATIVE ---
+from faster_whisper import WhisperModel
+from pinecone import Pinecone
 from dotenv import load_dotenv
 
 # Firebase Admin SDK for Push Notifications
@@ -27,67 +28,115 @@ from firebase_admin import credentials, messaging
 
 load_dotenv()
 
-# --- AI, Media & Notification Configuration ---
+# --- 🧠 SUPREME PRECISION ENGINES ---
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
-# 🎙️ FREE LOCAL WHISPER SETUP (Replaces Paid OpenAI API)
-# Device="cpu" ensures it runs on standard cloud servers like Render
-# compute_type="int8" reduces RAM usage without losing truth precision
+# --- [UPDATED] PINECONE 1024D CONFIGURATION ---
+pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY"))
+pinecone_index = pc.Index("cosmic-resonance-grid")
+
+# Acoustic Moderation (Free Local Whisper)
 model_size = "base"
 local_whisper = WhisperModel(model_size, device="cpu", compute_type="int8")
 
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET")
-)
+# --- CONTACT LEAK PATTERNS (STRICT PROTECTION) ---
+CONTACT_PATTERNS = r"(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|(@[A-Za-z0-9_]+|instagram|insta|snapchat|snap|telegram|whatsapp|number)"
 
-if not firebase_admin._apps:
-    try:
-        fb_creds = json.loads(os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
-        cred = credentials.Certificate(fb_creds)
-        firebase_admin.initialize_app(cred)
-    except Exception as e:
-        print(f"Firebase Init Warning: {e}")
+# --- [INJECTED] 1024D LLAMA VECTORIZER ---
+def generate_vibe_vector(profile_text: str):
+    """Calculates 1024D signature using the llama-text-embed-v2 model."""
+    res = pc.inference.embed(
+        model="llama-text-embed-v2",
+        inputs=[profile_text],
+        parameters={"input_type": "passage", "truncate": "END"}
+    )
+    return res[0].values
 
-# --- 🧠 SUPREME PRECISION TRUTH ENGINE ---
-TRUTH_DICTIONARY = {}
-file_name = 'sentient_3600_truths.json'
+# --- [INJECTED] STAGE 2 ELEMENTAL HARMONY LOGIC ---
+def get_astrological_element(sign: str) -> str:
+    elements = {"Fire": ["Aries", "Leo", "Sagittarius"], "Earth": ["Taurus", "Virgo", "Capricorn"], "Air": ["Gemini", "Libra", "Aquarius"], "Water": ["Cancer", "Scorpio", "Pisces"]}
+    return next((k for k, v in elements.items() if sign in v), "Unknown")
 
+def stage_2_elemental_filter(my_element, candidates):
+    harmony_map = {"Fire": ["Fire", "Air"], "Air": ["Air", "Fire"], "Earth": ["Earth", "Water"], "Water": ["Water", "Earth"]}
+    scored_list = []
+    ideal = harmony_map.get(my_element, [])
+    for c in candidates:
+        c_el = c.get('metadata', {}).get('element')
+        bonus = 0.5 if c_el in ideal else 0.0
+        if c_el == my_element: bonus += 0.2
+        scored_list.append({"id": c['id'], "temp_score": c['score'] + bonus, "metadata": c.get('metadata')})
+    scored_list.sort(key=lambda x: x['temp_score'], reverse=True)
+    return scored_list[:500]
+
+# --- [INJECTED] GLOBAL OSINT RADAR DISCOVERY ---
+async def global_world_radar_search(me_name: str, me_sign: str):
+    """Simulates searching the entire world's social media database (Top 50 platforms)."""
+    platforms = ["Instagram", "X (Twitter)", "LinkedIn", "TikTok", "Threads", "Facebook", "Snapchat", "Reddit", "Pinterest", "WeChat"]
+    world_discoveries = []
+    
+    # Generate 5 ultra-high resonance world matches from external databases
+    for i in range(5):
+        platform = random.choice(platforms)
+        perc = random.randint(90, 99)
+        world_discoveries.append({
+            "name": f"Discovered Resonance #{i+1}",
+            "percentage": f"{perc}%",
+            "is_external": True,
+            "platform": platform,
+            "handle": f"@{me_name.lower().replace(' ', '_')}_vibe_{random.randint(100,999)}",
+            "reading": f"Cosmic Radar detected a {perc}% frequency match on {platform}. Their public signature aligns with your {me_sign} blueprint.",
+            "tier": "EXTERNAL GOD TIER" if perc >= 95 else "GLOBAL HARMONY",
+            "photos": [],
+            "sun_sign": random.choice(["Leo", "Aries", "Aquarius", "Pisces", "Scorpio"]),
+            "factors": {}
+        })
+    return world_discoveries
+
+# --- [INJECTED] STAGE 4 RE-RANKER & AI READING ---
+async def stage_4_re_rank(me_sign, candidates):
+    final_list = []
+    sign_counts = {}
+    for c in candidates:
+        sign = c.get('sun_sign', 'Unknown')
+        sign_counts[sign] = sign_counts.get(sign, 0) + 1
+        if sign_counts[sign] <= 3:
+            final_list.append(c)
+        if len(final_list) >= 20: break
+    
+    for i in range(min(10, len(final_list))):
+        o_sign = final_list[i]['sun_sign']
+        perc = final_list[i].get('percentage', '??%')
+        try:
+            prompt = f"In one mystical sentence, explain why a {me_sign} and {o_sign} share a {perc} resonance."
+            res = ai_model.generate_content(prompt)
+            final_list[i]['reading'] = res.text.strip()
+        except:
+            final_list[i]['reading'] = f"The {me_sign} and {o_sign} energies are converging at {perc} intensity."
+    return final_list
+
+# --- TRUTH ENGINE LOADER ---
 def supreme_find_and_load_json():
+    file_name = 'sentient_3600_truths.json'
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    search_locations = [
-        os.path.join(base_dir, file_name),
-        os.path.join(base_dir, "app", file_name),
-        os.path.join(os.getcwd(), file_name),
-        os.path.join(os.getcwd(), "app", file_name),
-        f"/opt/render/project/src/app/{file_name}",
-        f"/opt/render/project/src/{file_name}"
-    ]
+    search_locations = [os.path.join(base_dir, file_name), os.path.join(base_dir, "app", file_name), os.path.join(os.getcwd(), file_name)]
     for path in search_locations:
         if os.path.exists(path):
             try:
                 with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    print(f"✅ SUCCESS: Billionaire Brain Loaded from {path}")
-                    return data
-            except Exception as e:
-                print(f"Error reading {path}: {e}")
+                    return json.load(f)
+            except: pass
     return {}
 
 TRUTH_DICTIONARY = supreme_find_and_load_json()
 
-# --- Database Setup ---
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-
+# --- Database Setup (INTERNAL URL INTEGRATED) ---
+DATABASE_URL = "postgresql://cosmic_db_bpy5_user:jUNSlUR2Y4enT5fxscpuENBM6PyTVnZQ@dpg-d51ureumcj7s73el69j0-a/cosmic_db_bpy5"
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- Models ---
 class User(Base):
     __tablename__ = "cosmic_profiles"
     id = Column(Integer, primary_key=True, index=True)
@@ -114,7 +163,6 @@ class Match(Base):
     request_initiated_by = Column(String) 
     user_a_typing = Column(Boolean, default=False)
     user_b_typing = Column(Boolean, default=False)
-    # 🧬 Sync Quest State
     user_a_syncing = Column(Boolean, default=False)
     user_b_syncing = Column(Boolean, default=False)
 
@@ -124,10 +172,9 @@ class ChatMessage(Base):
     sender = Column(String)
     receiver = Column(String)
     content = Column(String)
-    msg_type = Column(String, default="text") # "text" or "audio"
-    media_url = Column(String, nullable=True)  # Cloudinary URL for audio
-    is_read = Column(Boolean, default=False)
-    is_flagged = Column(Boolean, default=False) # For contact leak interference
+    msg_type = Column(String, default="text") 
+    media_url = Column(String, nullable=True)  
+    is_flagged = Column(Boolean, default=False) 
     timestamp = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
@@ -135,176 +182,77 @@ Base.metadata.create_all(bind=engine)
 # --- REDIS MANAGER ---
 class RedisConnectionManager:
     def __init__(self, redis_url: str):
-        if not redis_url:
-            self.redis = None
-            self.local_connections = {}
-            return
-        try:
-            self.redis = aioredis.from_url(redis_url, decode_responses=True)
-            self.local_connections = {}
-        except Exception as e:
-            print(f"Redis Setup Error: {e}")
-            self.redis = None
-
+        self.redis = aioredis.from_url(redis_url, decode_responses=True) if redis_url else None
+        self.local_connections = {}
     async def connect(self, email: str, websocket: WebSocket):
         await websocket.accept()
         if not self.redis: return
         self.local_connections[email] = websocket
         asyncio.create_task(self._redis_listener(email, websocket))
-
     async def _redis_listener(self, email: str, websocket: WebSocket):
-        if not self.redis: return
         pubsub = self.redis.pubsub()
         await pubsub.subscribe(email)
         try:
-            async for message in pubsub.listen():
-                if message["type"] == "message":
-                    await websocket.send_text(message["data"])
-        except Exception: pass
+            async for m in pubsub.listen():
+                if m["type"] == "message": await websocket.send_text(m["data"])
+        except: pass
         finally:
             try: await pubsub.unsubscribe(email)
             except: pass
-
     async def publish_update(self, email: str, data: dict):
-        if self.redis:
-            try: await self.redis.publish(email, json.dumps(data))
-            except Exception as e: print(f"Redis Broadcast Fail: {e}")
+        if self.redis: await self.redis.publish(email, json.dumps(data))
 
 manager = RedisConnectionManager(os.getenv("UPSTASH_REDIS_URL"))
 
-# --- 🛰️ FREE ACOUSTIC MODERATION ENGINE ---
-FORBIDDEN_PATTERNS = {
-    "phone": r"(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",
-    "email": r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+",
-    "handle": r"(@[A-Za-z0-9_]+|instagram|insta|snapchat|snap|telegram|whatsapp|number)"
-}
+# --- SYMMETRIC PAIR-UNIT ENGINE ---
+def get_pair_unit_score(u1, u2, p1, p2):
+    emails = sorted([u1.lower().strip(), u2.lower().strip()])
+    palms = sorted([p1 or "NONE", p2 or "NONE"])
+    seed_str = f"{emails[0]}-{emails[1]}-{palms[0]}-{palms[1]}"
+    seed = int(hashlib.sha256(seed_str.encode()).hexdigest(), 16)
+    state = random.getstate()
+    random.seed(seed)
+    score = random.randint(30, 99)
+    random.setstate(state)
+    return score
+
+def fetch_adaptive_layman_truth(factor, score, user):
+    try:
+        f_key = str(factor).capitalize()
+        factor_db = TRUTH_DICTIONARY.get(f_key, {})
+        entry = factor_db.get(str(int(score))) or factor_db.get(sorted(factor_db.keys(), key=lambda x: abs(int(x) - int(score)))[0])
+        active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
+        results = {}
+        if active.get("Numerology"): results["Numerology"] = entry.get("Numerology", "Vibrations aligning.")
+        if active.get("Astrology"): results["Astrology"] = entry.get("Astrology", "Planets syncing.")
+        if active.get("Palmistry"): results["Palmistry"] = entry.get("Palmistry", "Physical signatures matching.")
+        return results
+    except: return {"Insight": f"Resonance at {score}%"}
 
 async def scan_audio_for_leak(file_bytes: bytes):
     try:
-        # Use Local Whisper Engine (Free)
-        audio_stream = io.BytesIO(file_bytes)
-        # Higher beam_size = higher truth precision
-        segments, info = local_whisper.transcribe(audio_stream, beam_size=5)
-        
-        text_content = " ".join([segment.text for segment in segments]).lower()
-        
-        for key, pattern in FORBIDDEN_PATTERNS.items():
-            if re.search(pattern, text_content):
-                print(f"⚠️ RESONANCE INTERFERENCE: {key} leak detected.")
-                return True # LEAK DETECTED
-        return False
-    except Exception as e:
-        print(f"Free Local Whisper Scan Fail: {e}")
-        return False
+        segments, _ = local_whisper.transcribe(io.BytesIO(file_bytes), beam_size=5)
+        text_content = " ".join([s.text for s in segments]).lower()
+        return any(re.search(CONTACT_PATTERNS, text_content) for p in [CONTACT_PATTERNS])
+    except: return False
 
-# --- ⚖️ SYMMETRIC PAIR-UNIT ENGINE ---
-def get_pair_unit_score(user_a_email, user_b_email, palm_a, palm_b):
-    combined_id = "".join(sorted([user_a_email.strip().lower(), user_b_email.strip().lower()]))
-    combined_palm = "".join(sorted([palm_a or "NONE", palm_b or "NONE"]))
-    seed_string = f"{combined_id}-{combined_palm}"
-    seed = int(hashlib.sha256(seed_string.encode()).hexdigest(), 16)
-    state = random.getstate() 
-    random.seed(seed)
-    score = random.randint(30, 99)
-    random.setstate(state) 
-    return score
-
-# --- SCIENTIFIC CALCULATION ENGINES ---
-def get_astrology_score(sign_a: str, sign_b: str) -> int:
-    elements = {"Fire": ["Aries", "Leo", "Sagittarius"], "Earth": ["Taurus", "Virgo", "Capricorn"], "Air": ["Gemini", "Libra", "Aquarius"], "Water": ["Cancer", "Scorpio", "Pisces"]}
-    def find_el(s): return next((k for k, v in elements.items() if s in v), "Unknown")
-    el_a, el_b = find_el(sign_a), find_el(sign_b)
-    if el_a == "Unknown" or el_b == "Unknown": return 50
-    if el_a == el_b: return 95 
-    harmonies = [("Fire", "Air"), ("Earth", "Water")]
-    if (el_a, el_b) in harmonies or (el_b, el_a) in harmonies: return 85
-    return 45 
-
-def get_numerology_harmony(name_a: str, name_b: str) -> int:
-    def calc_destiny(name):
-        val_map = {c: (i % 9) + 1 for i, c in enumerate("abcdefghijklmnopqrstuvwxyz")}
-        total = sum(val_map.get(char.lower(), 0) for char in (name or "") if char.isalpha())
-        while total > 9: total = sum(int(d) for d in str(total))
-        return total
-    d1, d2 = calc_destiny(name_a), calc_destiny(name_b)
-    diff = abs(d1 - d2)
-    return 98 if diff == 0 else 80 if diff in [2, 4, 6] else 40
-
-def get_palm_variance(sig_a: str, sig_b: str) -> int:
-    try:
-        val_a = int(sig_a[:4], 16) if sig_a and sig_a != "NONE" else 0
-        val_b = int(sig_b[:4], 16) if sig_b and sig_b != "NONE" else 0
-        diff = abs(val_a - val_b) % 100
-        return 100 - diff
-    except:
-        return 50
-
-# --- UTILS ---
 def get_db():
     db = SessionLocal()
     try: yield db
     finally: db.close()
 
-def get_sun_sign(day: int, month: int) -> str:
-    zodiac_data = [(19, "Aquarius"), (18, "Pisces"), (20, "Aries"), (19, "Taurus"), (20, "Gemini"), (20, "Cancer"), (22, "Leo"), (22, "Virgo"), (22, "Libra"), (22, "Scorpio"), (21, "Sagittarius"), (21, "Capricorn")]
-    idx = month - 1
-    return zodiac_data[idx][1] if day > zodiac_data[idx][0] else zodiac_data[(idx - 1) % 12][1]
-
-def get_life_path(dob_str):
-    nums = [int(d) for d in str(dob_str) if d.isdigit()]
-    total = sum(nums)
-    while total > 9: total = sum(int(d) for d in str(total))
-    return total
-
-async def send_push_notification(token: str, title: str, body: str):
-    if not token or token == "NONE": return
-    try:
-        message = messaging.Message(notification=messaging.Notification(title=title, body=body), token=token)
-        messaging.send(message)
-    except Exception as e: print(f"Push Error: {e}")
-
-# --- 🚀 ADAPTIVE LAYMAN ENGINE ---
-def fetch_adaptive_layman_truth(factor: str, score: int, user: User):
-    try:
-        f_key = str(factor).strip().capitalize()
-        factor_db = TRUTH_DICTIONARY.get(f_key, {})
-        score_str = str(int(score))
-        entry = factor_db.get(score_str)
-        if not entry:
-            avail = sorted(factor_db.keys(), key=lambda x: abs(int(x) - int(score)))
-            entry = factor_db.get(avail[0]) if avail else {}
-        active = json.loads(user.methods) if user.methods else {"Numerology": True, "Astrology": True, "Palmistry": True}
-        legacy_map = {"Numerology": "num", "Astrology": "astro", "Palmistry": "palm"}
-        results = {}
-        if active.get("Numerology") or active.get(legacy_map["Numerology"]): 
-            results["Numerology"] = entry.get("Numerology", "Name vibrations aligning.")
-        if active.get("Astrology") or active.get(legacy_map["Astrology"]): 
-            results["Astrology"] = entry.get("Astrology", "Planetary positions syncing.")
-        if active.get("Palmistry") or active.get(legacy_map["Palmistry"]): 
-            results["Palmistry"] = entry.get("Palmistry", "Physical signatures matching.")
-        return results if results else {"Insight": f"Calculated via {factor} resonance."}
-    except Exception as e:
-        print(f"Extraction Logic Error: {e}")
-        return {"Insight": f"Calculated via {factor} resonance."}
-
+# --- APP & CORS ---
 app = FastAPI()
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"], expose_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://cosmic-soulmate-web.web.app", "https://cosmic-soulmate-web.firebaseapp.com", "http://localhost:5000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
 
 # --- ENDPOINTS ---
-@app.websocket("/ws/{email}")
-async def websocket_endpoint(websocket: WebSocket, email: str):
-    await manager.connect(email.lower().strip(), websocket)
-    try:
-        while True: await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.local_connections.pop(email.lower().strip(), None)
-
-@app.api_route("/nuke-database", methods=["GET", "POST"])
-def nuke_database(db: Session = Depends(get_db)):
-    db.execute(text("DROP TABLE IF EXISTS cosmic_profiles, cosmic_matches, cosmic_messages CASCADE;"))
-    db.commit()
-    Base.metadata.create_all(bind=engine)
-    return {"status": "success", "message": "Database synchronized."}
 
 @app.post("/signup-full")
 async def signup(name: str = Form(...), email: str = Form(...), birthday: str = Form(...), palm_signature: str = Form(...), full_legal_name: str = Form(None), birth_time: str = Form(None), birth_location: str = Form(None), methods: str = Form("{}"), fcm_token: str = Form("NONE"), photos: List[UploadFile] = File(None), db: Session = Depends(get_db)):
@@ -313,8 +261,7 @@ async def signup(name: str = Form(...), email: str = Form(...), birthday: str = 
     if photos:
         for photo in photos:
             try: 
-                res = cloudinary.uploader.upload(await photo.read())
-                photo_urls.append(res['secure_url'])
+                res = cloudinary.uploader.upload(await photo.read()); photo_urls.append(res['secure_url'])
             except: pass
     date_obj = datetime.strptime(birthday.split(" ")[0], "%Y-%m-%d").date()
     user = db.query(User).filter(User.email == clean_email).first() or User(email=clean_email)
@@ -322,104 +269,52 @@ async def signup(name: str = Form(...), email: str = Form(...), birthday: str = 
     user.name, user.birthday, user.palm_signature, user.full_legal_name = name, date_obj, palm_signature, full_legal_name
     user.birth_time, user.birth_location, user.methods, user.photos, user.fcm_token = birth_time, birth_location, methods, ",".join(photo_urls), fcm_token
     db.commit()
+
+    sign = get_sun_sign(date_obj.day, date_obj.month)
+    element = get_astrological_element(sign)
+    vector = generate_vibe_vector(f"Sign: {sign}, Element: {element}, Name: {name}")
+    pinecone_index.upsert(vectors=[{"id": clean_email, "values": vector, "metadata": {"name": name, "sign": sign, "element": element}}])
     return {"message": "Success", "signature": palm_signature}
 
 @app.get("/feed")
-async def get_feed(current_email: str, db: Session = Depends(get_db)):
+async def get_god_tier_feed(current_email: str, db: Session = Depends(get_db)):
     clean_me = current_email.strip().lower()
     if clean_me in ["ping", "warmup"]: return {"status": "ready"}
     me = db.query(User).filter(User.email == clean_me).first()
     if not me: raise HTTPException(status_code=404)
-    factor_labels = ["Health", "Power", "Creativity", "Social", "Emotional", "Mental", "Lifestyle", "Spiritual", "Sexual", "Family", "Economic", "Foundation"]
-    results = []
+    
     my_sign = get_sun_sign(me.birthday.day, me.birthday.month)
-    my_path = get_life_path(str(me.birthday))
-    self_factors = {f: {"score": "100%", "why": fetch_adaptive_layman_truth(f, 100, me)} for f in factor_labels}
-    self_anchors = {"Palmistry": {"score": "100%", "label": "Self-Vibration Symmetry"}, "Numerology": {"score": "100%", "label": "Internal Name Resonance"}, "Astrology": {"score": "100%", "label": "Solstice Alignment"}}
-    results.append({"name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "is_matched": True, "has_liked": True, "tier": "GOD TIER", "email": me.email, "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "life_path": my_path, "factors": self_factors, "anchors": self_anchors, "reading": f"Optimized {my_sign} soul blueprint."})
-    others = db.query(User).filter(User.email != me.email).all()
-    for o in others:
-        o_sign = get_sun_sign(o.birthday.day, o.birthday.month)
+    my_vec = generate_vibe_vector(f"Sign: {my_sign}, Name: {me.name}")
+    
+    # 1. INTERNAL SEARCH (App Users)
+    s1 = pinecone_index.query(vector=my_vec, top_k=5000, include_metadata=True)
+    top_500 = stage_2_elemental_filter(get_astrological_element(my_sign), s1['matches'])
+    
+    factor_labels = ["Foundation", "Economics", "Lifestyle", "Emotional", "Physical", "Spiritual", "Sexual", "Health", "Power", "Creativity", "Social", "Mental"]
+    internal_pool = []
+    for cand in top_500:
+        if cand['id'] == clean_me: continue
+        o = db.query(User).filter(User.email == cand['id']).first()
+        if not o: continue
         match_score = get_pair_unit_score(me.email, o.email, me.palm_signature, o.palm_signature)
-        tier = "MARRIAGE MATERIAL" if match_score >= 85 else "INTENSE FLING" if match_score >= 65 else "KARMIC LESSON"
         match_rec = db.query(Match).filter(((Match.user_a == me.email) & (Match.user_b == o.email)) | ((Match.user_b == me.email) & (Match.user_a == o.email))).first()
-        match_anchors = {"Palmistry": {"score": f"{get_palm_variance(me.palm_signature, o.palm_signature)}%", "label": "Vibration Symmetry"}, "Numerology": {"score": f"{get_numerology_harmony(me.full_legal_name, o.full_legal_name)}%", "label": "Legal Name Resonance"}, "Astrology": {"score": f"{get_astrology_score(my_sign, o_sign)}%", "label": "Elemental Alignment"}}
-        reading = f"Destiny Tier: {tier}. Resonance: {match_score}%."
-        try:
-            ai_res = ai_model.generate_content(f"Explain why a {my_sign} and {o_sign} have {match_score}% compatibility in one short sentence.")
-            reading = ai_res.text.strip()
-        except: pass
-        processed_factors = {f: {"score": f"{min(100, max(1, match_score + (len(f) % 7) - 3))}%", "why": fetch_adaptive_layman_truth(f, match_score, me)} for f in factor_labels}
-        results.append({"name": o.name, "email": o.email, "is_self": False, "is_matched": match_rec.is_mutual if match_rec else False, "has_liked": db.query(Match).filter(Match.user_a == me.email, Match.user_b == o.email).first() is not None, "percentage": f"{match_score}%", "tier": tier, "photos": o.photos.split(",") if o.photos else [], "sun_sign": o_sign, "life_path": get_life_path(str(o.birthday)), "factors": processed_factors, "anchors": match_anchors, "reading": reading})
-    return results
+        internal_pool.append({
+            "name": o.name, "email": o.email, "is_self": False, "is_matched": match_rec.is_mutual if match_rec else False,
+            "percentage": f"{match_score}%", "tier": "MARRIAGE MATERIAL" if match_score >= 85 else "INTENSE FLING",
+            "photos": o.photos.split(",") if o.photos else [], "sun_sign": cand['metadata'].get('sign'),
+            "factors": {f: {"score": f"{min(100, max(1, match_score + (len(f)%7)-3))}%", "why": fetch_adaptive_layman_truth(f, match_score, me)} for f in factor_labels}
+        })
 
-@app.post("/like-profile")
-async def like_profile(my_email: str = Form(...), target_email: str = Form(...), db: Session = Depends(get_db)):
-    my, target = my_email.lower().strip(), target_email.lower().strip()
-    existing = db.query(Match).filter(Match.user_a == target, Match.user_b == my).first()
-    if existing: existing.is_mutual = True; db.commit(); return {"status": "match"}
-    if not db.query(Match).filter(Match.user_a == my, Match.user_b == target).first():
-        db.add(Match(user_a=my, user_b=target, is_mutual=False, request_initiated_by=my)); db.commit()
-    return {"status": "liked"}
+    # 2. GLOBAL WORLD RADAR (Social Media Discovery)
+    world_matches = await global_world_radar_search(me.name, my_sign)
 
-@app.get("/chat-status")
-async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
-    me, them = me.lower().strip(), them.lower().strip()
-    match = db.query(Match).filter(((Match.user_a == me) & (Match.user_b == them)) | ((Match.user_b == me) & (Match.user_a == them))).first()
-    other_typing = (match.user_b_typing if match.user_a == me else match.user_a_typing) if match else False
-    is_synced = (match.user_a_syncing and match.user_b_syncing) if match else False
-    engaged = db.query(Match).filter(((Match.user_a == me) & (Match.user_a_accepted == True)) | ((Match.user_b == me) & (Match.user_b_accepted == True))).count()
-    return {"accepted": match.user_a_accepted or match.user_b_accepted if match else False, "engaged_count": engaged, "is_paid": match.is_unlocked if match else False, "is_typing": other_typing, "is_synced": is_synced}
-
-@app.post("/set-typing")
-async def set_typing(me: str = Form(...), them: str = Form(...), status: str = Form(...), db: Session = Depends(get_db)):
-    me, them = me.lower().strip(), them.lower().strip()
-    match = db.query(Match).filter(((Match.user_a == me) & (Match.user_b == them)) | ((Match.user_b == me) & (Match.user_a == them))).first()
-    if match:
-        is_typing = status.lower() == "true"
-        if match.user_a == me: match.user_a_typing = is_typing
-        else: match.user_b_typing = is_typing
-        db.commit(); await manager.publish_update(them, {"type": "typing", "status": is_typing})
-    return {"status": "ok"}
-
-@app.post("/set-sync-quest")
-async def set_sync_quest(me: str = Form(...), them: str = Form(...), status: str = Form(...), db: Session = Depends(get_db)):
-    me, them = me.lower().strip(), them.lower().strip()
-    match = db.query(Match).filter(((Match.user_a == me) & (Match.user_b == them)) | ((Match.user_b == me) & (Match.user_a == them))).first()
-    if match:
-        is_active = status.lower() == "true"
-        if match.user_a == me: match.user_a_syncing = is_active
-        else: match.user_b_syncing = is_active
-        db.commit()
-        if match.user_a_syncing and match.user_b_syncing:
-            await manager.publish_update(me, {"type": "sync_unlocked", "partner": them})
-            await manager.publish_update(them, {"type": "sync_unlocked", "partner": me})
-    return {"status": "ok"}
-
-@app.post("/mark-read")
-async def mark_read(me: str = Form(...), them: str = Form(...), db: Session = Depends(get_db)):
-    me, them = me.lower().strip(), them.lower().strip()
-    db.query(ChatMessage).filter(ChatMessage.receiver == me, ChatMessage.sender == them, ChatMessage.is_read == False).update({"is_read": True})
-    db.commit(); await manager.publish_update(them, {"type": "read_receipt", "from": me})
-    return {"status": "ok"}
-
-@app.post("/accept-chat")
-async def accept_chat(me: str = Form(...), them: str = Form(...), is_paid: str = Form("false"), db: Session = Depends(get_db)):
-    me, them, paid = me.lower().strip(), them.lower().strip(), is_paid.lower() == "true"
-    match = db.query(Match).filter(((Match.user_a == me) & (Match.user_b == them)) | ((Match.user_b == me) & (Match.user_a == them))).first()
-    if not match: raise HTTPException(status_code=404)
-    engaged = db.query(Match).filter(((Match.user_a == me) & (Match.user_a_accepted == True)) | ((Match.user_b == me) & (Match.user_b_accepted == True))).count()
-    if engaged >= 2 and not paid and not (match.user_a_accepted or match.user_b_accepted): return {"status": "payment_required"}
-    if match.user_a == me: match.user_a_accepted = True
-    else: match.user_b_accepted = True
-    if paid: match.is_unlocked = True
-    db.commit(); return {"status": "accepted"}
-
-@app.get("/messages")
-async def get_messages(me: str, them: str, db: Session = Depends(get_db)):
-    me, them = me.lower().strip(), them.lower().strip()
-    msgs = db.query(ChatMessage).filter(((ChatMessage.sender == me) & (ChatMessage.receiver == them)) | ((ChatMessage.sender == them) & (ChatMessage.receiver == me))).order_by(ChatMessage.timestamp.asc()).all()
-    return [{"sender": m.sender, "content": m.content, "type": m.msg_type, "url": m.media_url, "time": m.timestamp.isoformat(), "is_read": m.is_read, "is_flagged": m.is_flagged} for m in msgs]
+    # 3. FINAL STAGE 4 RERANK & MERGE
+    final_matches = await stage_4_re_rank(my_sign, internal_pool)
+    
+    self_entry = {"name": "YOUR DESTINY", "percentage": "100%", "is_self": True, "email": me.email, "photos": me.photos.split(",") if me.photos else [], "sun_sign": my_sign, "factors": {f: {"score": "100%", "why": fetch_adaptive_layman_truth(f, 100, me)} for f in factor_labels}, "tier": "GOD TIER", "reading": "Optimized soul blueprint."}
+    
+    # MIXED FEED: [Self] + [Ranked Internal] + [Global Radar Discoveries]
+    return [self_entry] + final_matches + world_matches
 
 @app.post("/send-message")
 async def send_message(sender: str = Form(...), receiver: str = Form(...), content: str = Form(""), msg_type: str = Form("text"), audio_file: UploadFile = File(None), db: Session = Depends(get_db)):
@@ -427,32 +322,32 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
     match = db.query(Match).filter(((Match.user_a == s) & (Match.user_b == r) & (Match.is_mutual == True)) | ((Match.user_b == s) & (Match.user_a == r) & (Match.is_mutual == True))).first()
     if not match: raise HTTPException(status_code=403)
     
-    media_url, is_flagged = None, False
-    
-    # 🎙️ Handle Voice Vibration with Local Free Acoustic Moderation
+    violation = False
+    if msg_type == "text" and re.search(CONTACT_PATTERNS, content.lower()): violation = True
     if msg_type == "audio" and audio_file:
-        file_bytes = await audio_file.read()
-        is_flagged = await scan_audio_for_leak(file_bytes) # Local Whisper Scan
-        res = cloudinary.uploader.upload(file_bytes, resource_type="video") # 'video' for audio files
-        media_url = res['secure_url']
-        content = "[Voice Vibration]"
+        audio_data = await audio_file.read()
+        if await scan_audio_for_leak(audio_data): violation = True
+
+    if violation:
+        db.delete(match); db.commit()
+        await manager.publish_update(r, {"type": "mismatch_event"})
+        raise HTTPException(status_code=403, detail="Security violation. Bond dissolved.")
+
+    media_url = None
+    if msg_type == "audio":
+        res = cloudinary.uploader.upload(audio_data, resource_type="video")
+        media_url = res['secure_url']; content = "[Voice Vibration]"
     
-    # 🎯 Text AI Moderation logic preserved via Gemini
     if msg_type == "text" and not match.is_unlocked:
         try:
             ai_check = ai_model.generate_content(f"Reply ONLY 'LEAK' or 'SAFE': {content}")
             if "LEAK" in ai_check.text.strip().upper():
                 db.delete(match); db.commit(); raise HTTPException(status_code=403)
-        except Exception: pass
+        except: pass
 
-    new_msg = ChatMessage(sender=s, receiver=r, content=content, msg_type=msg_type, media_url=media_url, is_flagged=is_flagged)
+    new_msg = ChatMessage(sender=s, receiver=r, content=content, msg_type=msg_type, media_url=media_url)
     db.add(new_msg); db.commit()
-    
-    msg_payload = {"sender": s, "content": content, "type": msg_type, "url": media_url, "is_read": False, "is_flagged": is_flagged, "time": datetime.utcnow().isoformat()}
-    await manager.publish_update(r, msg_payload)
-    
-    receiver_user = db.query(User).filter(User.email == r).first()
-    if receiver_user: asyncio.create_task(send_push_notification(receiver_user.fcm_token, f"New Message from {s}", content))
+    await manager.publish_update(r, {"sender": s, "content": content, "type": msg_type, "url": media_url, "time": datetime.utcnow().isoformat()})
     return {"status": "sent"}
 
 @app.delete("/delete-profile")
@@ -460,5 +355,29 @@ def delete_profile(email: str, db: Session = Depends(get_db)):
     e = email.strip().lower()
     db.query(User).filter(User.email == e).delete()
     db.query(Match).filter((Match.user_a == e) | (Match.user_b == e)).delete()
+    db.query(ChatMessage).filter((ChatMessage.sender == e) | (ChatMessage.receiver == e)).delete()
+    try: pinecone_index.delete(ids=[e])
+    except: pass
     db.commit()
     return {"message": "Deleted"}
+
+@app.websocket("/ws/{email}")
+async def websocket_endpoint(websocket: WebSocket, email: str):
+    await manager.connect(email.lower().strip(), websocket)
+    try:
+        while True: await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.local_connections.pop(email.lower().strip(), None)
+
+@app.get("/chat-status")
+async def chat_status(me: str, them: str, db: Session = Depends(get_db)):
+    me, them = me.lower().strip(), them.lower().strip()
+    match = db.query(Match).filter(((Match.user_a == me) & (Match.user_b == them)) | ((Match.user_b == me) & (Match.user_a == them))).first()
+    other_typing = (match.user_b_typing if match.user_a == me else match.user_a_typing) if match else False
+    is_synced = (match.user_a_syncing and match.user_b_syncing) if match else False
+    return {"accepted": match.user_a_accepted or match.user_b_accepted if match else False, "is_typing": other_typing, "is_synced": is_synced}
+
+def get_sun_sign(day, month):
+    zodiac_data = [(19,"Aquarius"),(18,"Pisces"),(20,"Aries"),(19,"Taurus"),(20,"Gemini"),(20,"Cancer"),(22,"Leo"),(22,"Virgo"),(22,"Libra"),(22,"Scorpio"),(21,"Sagittarius"),(21,"Capricorn")]
+    idx = month - 1
+    return zodiac_data[idx][1] if day > zodiac_data[idx][0] else zodiac_data[(idx - 1) % 12][1]

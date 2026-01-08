@@ -1,70 +1,62 @@
-# =====================================================
-# Web Server & API Framework (The Gateway)
-# =====================================================
-fastapi==0.110.0
-uvicorn==0.27.1
-# Required for handling multiple photo files and form data
-python-multipart==0.0.9
-pydantic==2.6.3
-# Required for WebSocket support in Starlette/FastAPI
-websockets==12.0
-
-# =====================================================
-# Real-Time & Scaling Engine (The "Glue")
-# Handles the Symmetric Pair-Unit Pub/Sub logic via Redis
-# =====================================================
-redis==5.0.3
-aioredis==2.0.1
-# High-speed parser for Redis data
-hiredis==2.3.2
-
-# =====================================================
-# Symmetric Notification Engine
-# Required for sending Firebase Push Notifications
-# =====================================================
-firebase-admin==6.5.0
-
-# =====================================================
-# AI & Image Processing (The "Voice" Layer)
-# Used for the "Nuclear" Privacy Shield & Local Acoustic Moderation
-# =====================================================
-google-generativeai==0.4.1
-# NEW: Free local alternative to OpenAI Whisper
-faster-whisper==1.0.3
-# Backend engine for faster-whisper
-ctranslate2==4.4.0
-Pillow==10.2.0
-
-# =====================================================
-# Database & Environment (The Memory)
-# Handles Cosmic Profiles, Matches, and Secure Messages.
-# =====================================================
-sqlalchemy==2.0.28
-psycopg2-binary==2.9.9
-python-dotenv==1.0.1
-
-# =====================================================
-# Async, Compatibility & Math (The Engine)
-# Supports deterministic seeding for symmetric match scores.
-# =====================================================
-anyio==4.3.0
-# FIXED: Stable version to prevent dependency resolution loops
-typing-extensions==4.12.2
-numpy==1.26.4
-
-# =====================================================
-# Chat, Moderation & Realtime Stability
-# Core for the AI-moderated chat logic.
-# =====================================================
-starlette==0.36.3
-
-# =====================================================
-# Media Storage (Profile Photo Gallery & Audio Vibrations)
-# Stores and serves multiple images and voice vibrations.
-# =====================================================
+alembic==1.17.2
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.12.0
+cachetools==6.2.4
+certifi==2025.11.12
+charset-normalizer==3.4.4
+click==8.3.1
 cloudinary==1.39.0
-
-# =====================================================
-# Background Tasks & Scheduling
-# =====================================================
-apscheduler==3.10.4
+colorama==0.4.6
+distro==1.9.0
+fastapi==0.124.4
+google-ai-generativelanguage==0.6.10
+google-api-core==2.28.1
+google-api-python-client==2.187.0
+google-auth==2.45.0
+google-auth-httplib2==0.3.0
+google-generativeai==0.8.3
+googleapis-common-protos==1.72.0
+greenlet==3.3.0
+grpcio==1.76.0
+grpcio-status==1.71.2
+h11==0.16.0
+httpcore==1.0.9
+httplib2==0.31.0
+httpx==0.28.1
+idna==3.11
+jiter==0.12.0
+Mako==1.3.10
+MarkupSafe==3.0.3
+numpy==2.4.0
+openai==1.50.0
+orjson==3.11.5
+packaging==24.2
+pillow==10.4.0
+pinecone==8.0.0
+pinecone-plugin-assistant==3.0.1
+pinecone-plugin-interface==0.0.7
+proto-plus==1.27.0
+protobuf==5.29.5
+psycopg2-binary==2.9.11
+pyasn1==0.6.1
+pyasn1_modules==0.4.2
+pydantic==2.12.5
+pydantic_core==2.41.5
+pyparsing==3.3.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.1
+python-multipart==0.0.9
+requests==2.32.5
+rsa==4.9.1
+six==1.17.0
+sniffio==1.3.1
+SQLAlchemy==2.0.45
+sqlmodel==0.0.27
+starlette==0.50.0
+tqdm==4.67.1
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+uritemplate==4.2.0
+urllib3==2.6.2
+uvicorn==0.38.0
