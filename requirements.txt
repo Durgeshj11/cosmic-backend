@@ -46,7 +46,8 @@ python-dotenv==1.0.1
 # Supports deterministic seeding for symmetric match scores.
 # =====================================================
 anyio==4.3.0
-typing-extensions==4.10.0
+# UPDATED: Raised to 4.12.2 to resolve conflict with OpenAI 1.50.0
+typing-extensions==4.12.2
 numpy==1.26.4
 
 # =====================================================
