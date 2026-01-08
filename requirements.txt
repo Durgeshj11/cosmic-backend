@@ -20,15 +20,17 @@ hiredis==2.3.2
 
 # =====================================================
 # Symmetric Notification Engine
-# NEW: Required for sending Firebase Push Notifications
+# Required for sending Firebase Push Notifications
 # =====================================================
 firebase-admin==6.5.0
 
 # =====================================================
 # AI & Image Processing (The "Voice" Layer)
-# Used for the "Nuclear" Privacy Shield & descriptive readings.
+# Used for the "Nuclear" Privacy Shield & Acoustic Moderation
 # =====================================================
 google-generativeai==0.4.1
+# NEW: Required for Whisper Acoustic Moderation (Aesthetic framing: Resonance Stability)
+openai==1.50.0
 Pillow==10.2.0
 
 # =====================================================
@@ -54,8 +56,8 @@ numpy==1.26.4
 starlette==0.36.3
 
 # =====================================================
-# Media Storage (Profile Photo Gallery)
-# Stores and serves multiple profile images.
+# Media Storage (Profile Photo Gallery & Audio Vibrations)
+# Stores and serves multiple images and voice vibrations.
 # =====================================================
 cloudinary==1.39.0
 
