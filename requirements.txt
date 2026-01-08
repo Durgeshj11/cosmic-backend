@@ -26,11 +26,13 @@ firebase-admin==6.5.0
 
 # =====================================================
 # AI & Image Processing (The "Voice" Layer)
-# Used for the "Nuclear" Privacy Shield & Acoustic Moderation
+# Used for the "Nuclear" Privacy Shield & Local Acoustic Moderation
 # =====================================================
 google-generativeai==0.4.1
-# NEW: Required for Whisper Acoustic Moderation (Aesthetic framing: Resonance Stability)
-openai==1.50.0
+# NEW: Free local alternative to OpenAI Whisper
+faster-whisper==1.0.3
+# Backend engine for faster-whisper
+ctranslate2==4.4.0
 Pillow==10.2.0
 
 # =====================================================
@@ -46,7 +48,7 @@ python-dotenv==1.0.1
 # Supports deterministic seeding for symmetric match scores.
 # =====================================================
 anyio==4.3.0
-# UPDATED: Raised to 4.12.2 to resolve conflict with OpenAI 1.50.0
+# FIXED: Stable version to prevent dependency resolution loops
 typing-extensions==4.12.2
 numpy==1.26.4
 

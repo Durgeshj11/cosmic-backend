@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Date, Boolean, Da
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 import google.generativeai as genai
-from openai import OpenAI  # Added for Whisper Acoustic Moderation
+from faster_whisper import WhisperModel  # --- NEW: FREE LOCAL ALTERNATIVE ---
 from dotenv import load_dotenv
 
 # Firebase Admin SDK for Push Notifications
@@ -31,8 +31,11 @@ load_dotenv()
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
-# 🎙️ Whisper AI Setup for Acoustic Moderation
-openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# 🎙️ FREE LOCAL WHISPER SETUP (Replaces Paid OpenAI API)
+# Device="cpu" ensures it runs on standard cloud servers like Render
+# compute_type="int8" reduces RAM usage without losing truth precision
+model_size = "base"
+local_whisper = WhisperModel(model_size, device="cpu", compute_type="int8")
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_NAME"),
@@ -169,7 +172,7 @@ class RedisConnectionManager:
 
 manager = RedisConnectionManager(os.getenv("UPSTASH_REDIS_URL"))
 
-# --- 🛰️ ACOUSTIC MODERATION ENGINE ---
+# --- 🛰️ FREE ACOUSTIC MODERATION ENGINE ---
 FORBIDDEN_PATTERNS = {
     "phone": r"(\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}",
     "email": r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+",
@@ -178,21 +181,20 @@ FORBIDDEN_PATTERNS = {
 
 async def scan_audio_for_leak(file_bytes: bytes):
     try:
-        # Volatile Memory Transcription (Zero Persistence)
-        buffer = io.BytesIO(file_bytes)
-        buffer.name = "vibration.m4a"
-        transcription = openai_client.audio.transcriptions.create(
-            model="whisper-1", 
-            file=buffer,
-            prompt="Detect if the speaker is sharing a phone number or social handle."
-        )
-        text_content = transcription.text.lower()
+        # Use Local Whisper Engine (Free)
+        audio_stream = io.BytesIO(file_bytes)
+        # Higher beam_size = higher truth precision
+        segments, info = local_whisper.transcribe(audio_stream, beam_size=5)
+        
+        text_content = " ".join([segment.text for segment in segments]).lower()
+        
         for key, pattern in FORBIDDEN_PATTERNS.items():
             if re.search(pattern, text_content):
+                print(f"⚠️ RESONANCE INTERFERENCE: {key} leak detected.")
                 return True # LEAK DETECTED
         return False
     except Exception as e:
-        print(f"Whisper Scan Fail: {e}")
+        print(f"Free Local Whisper Scan Fail: {e}")
         return False
 
 # --- ⚖️ SYMMETRIC PAIR-UNIT ENGINE ---
@@ -427,15 +429,15 @@ async def send_message(sender: str = Form(...), receiver: str = Form(...), conte
     
     media_url, is_flagged = None, False
     
-    # 🎙️ Handle Voice Vibration with Acoustic Moderation
+    # 🎙️ Handle Voice Vibration with Local Free Acoustic Moderation
     if msg_type == "audio" and audio_file:
         file_bytes = await audio_file.read()
-        is_flagged = await scan_audio_for_leak(file_bytes) # AI Scan for contact details
-        res = cloudinary.uploader.upload(file_bytes, resource_type="video") # Use 'video' for audio files
+        is_flagged = await scan_audio_for_leak(file_bytes) # Local Whisper Scan
+        res = cloudinary.uploader.upload(file_bytes, resource_type="video") # 'video' for audio files
         media_url = res['secure_url']
         content = "[Voice Vibration]"
     
-    # 🎯 Text AI Moderation logic preserved
+    # 🎯 Text AI Moderation logic preserved via Gemini
     if msg_type == "text" and not match.is_unlocked:
         try:
             ai_check = ai_model.generate_content(f"Reply ONLY 'LEAK' or 'SAFE': {content}")
